@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Result</title>
+</head>
+<body>
+    <h2>Result</h2>
+
+    <img src="{{ url_for('static', filename=image_path) }}" width="300"><br><br>
+     <h3>{{ result }}</h3> <p><b>Confidence:</b> {{ confidence }}%</p> 
+     <p><b>Risk Level:</b> {{ risk }}</p>
+     
+    <p>{{ suggestion }}</p>
+     <a href="/">Analyze Another</a>
+</body>
+</html>
