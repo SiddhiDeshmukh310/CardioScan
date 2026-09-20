@@ -3,17 +3,25 @@ __pycache__/
 *.pyo
 *.pyd
 .Python
+
 env/
 venv/
 .venv/
 ENV/
 
-static/plot.png
-static/uploads/
 *.pkl
 model/*.pkl
 *.h5
+!model/best_efficientnet.h5
+!**/best_efficientnet.h5
+*.npy
 
+ptbxl_database.csv
+data/raw_*
+data/processed/
+
+static/plot.png
+static/uploads/
 .DS_Store
 .vscode/
 .idea/
