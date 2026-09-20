@@ -20,8 +20,6 @@ class TestLeakage(unittest.TestCase):
 
     def test_no_patient_id_overlap_real_ptbxl(self):
         split_path = os.path.join('splits', 'split.csv')
-        if not os.path.exists(split_path):
-            split_path = os.path.join('D:', 'Antigravity_ECG', 'CardioScan', 'splits', 'split.csv')
         df = pd.read_csv(split_path)
         train_patients = set(df[df['split'] == 'train']['patient_id'].dropna())
         val_patients = set(df[df['split'] == 'val']['patient_id'].dropna())
@@ -35,14 +33,10 @@ class TestLeakage(unittest.TestCase):
 
     def test_every_image_maps_to_exactly_one_split(self):
         split_path = os.path.join('splits', 'split.csv')
-        if not os.path.exists(split_path):
-            split_path = os.path.join('D:', 'Antigravity_ECG', 'CardioScan', 'splits', 'split.csv')
         df = pd.read_csv(split_path)
         split_map = dict(zip(df['ecg_id'], df['split']))
 
         img_dir = os.path.join('data', 'ecg_images')
-        if not os.path.exists(img_dir):
-            img_dir = os.path.join('D:', 'Antigravity_ECG', 'CardioScan', 'data', 'ecg_images')
 
         assigned_splits = {}
         for root, _, files in os.walk(img_dir):
@@ -61,14 +55,10 @@ class TestLeakage(unittest.TestCase):
 
     def test_no_image_ecg_id_in_two_splits(self):
         split_path = os.path.join('splits', 'split.csv')
-        if not os.path.exists(split_path):
-            split_path = os.path.join('D:', 'Antigravity_ECG', 'CardioScan', 'splits', 'split.csv')
         df = pd.read_csv(split_path)
         split_map = dict(zip(df['ecg_id'], df['split']))
 
         img_dir = os.path.join('data', 'ecg_images')
-        if not os.path.exists(img_dir):
-            img_dir = os.path.join('D:', 'Antigravity_ECG', 'CardioScan', 'data', 'ecg_images')
 
         train_ids, val_ids, test_ids = set(), set(), set()
         for root, _, files in os.walk(img_dir):
