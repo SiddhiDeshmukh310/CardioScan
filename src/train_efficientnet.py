@@ -1,7 +1,9 @@
 import argparse
 import os
+import re
 import json
 import numpy as np
+import pandas as pd
 import tensorflow as tf
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras.applications import EfficientNetB0
@@ -10,6 +12,30 @@ from tensorflow.keras.models import Model
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 from sklearn.utils.class_weight import compute_class_weight
 
+def load_split_dataframe(data_dir: str, split_file: str):
+    if not os.path.exists(split_file):
+        raise FileNotFoundError(f'Split file not found: {split_file}')
+
+    split_df = pd.read_csv(split_file)
+    split_map = dict(zip(split_df['ecg_id'], split_df['split']))
+
+    records = []
+    for root, _, files in os.walk(data_dir):
+        for f in files:
+            if f.lower().endswith(('.jpg', '.jpeg', '.png')):
+                cls_name = os.path.basename(root)
+                if cls_name not in ['Normal', 'Abnormal', 'MI']:
+                    continue
+                m = re.search(r'(\d+)', f)
+                if m:
+                    ecg_id = int(m.group(1))
+                    split = split_map.get(ecg_id, 'unmapped')
+                    full_path = os.path.join(root, f)
+                    records.append({'filepath': full_path, 'ecg_id': ecg_id, 'class': cls_name, 'split': split})
+
+    df = pd.DataFrame(records)
+    return df
+
 def main():
     parser = argparse.ArgumentParser(description='Train EfficientNet ECG Classifier with PTB-XL strat_fold split')
     parser.add_argument('--data_dir', type=str, default='data/ecg_images', help='Base directory for ECG images')
@@ -17,10 +43,18 @@ def main():
     parser.add_argument('--split_file', type=str, default='splits/split.csv', help='CSV containing leak-free strat_fold split')
     args = parser.parse_args()
 
-    train_dir = os.path.join(args.data_dir, 'train')
-    val_dir = os.path.join(args.data_dir, 'val')
     IMG_SIZE = (224, 224)
     BATCH_SIZE = 16
+
+    if not os.path.exists(args.split_file) or not os.path.exists(args.data_dir):
+        print(f'Data or split file missing ({args.data_dir}, {args.split_file}). Ready for Kaggle/Colab execution.')
+        return
+
+    df = load_split_dataframe(args.data_dir, args.split_file)
+    df_train = df[df['split'] == 'train']
+    df_val = df[df['split'] == 'val']
+
+    print(f'Leak-free Train samples: {len(df_train)} | Val samples: {len(df_val)}')
 
     train_gen = ImageDataGenerator(
         rescale=1./255,
@@ -31,21 +65,22 @@ def main():
     )
     val_gen = ImageDataGenerator(rescale=1./255)
 
-    if not (os.path.exists(train_dir) and os.path.exists(val_dir)):
-        print(f'Data directories missing ({train_dir}, {val_dir}). Training setup ready for Kaggle/Colab execution.')
-        return
-
-    train_data = train_gen.flow_from_directory(
-        train_dir,
+    train_data = train_gen.flow_from_dataframe(
+        df_train,
+        x_col='filepath',
+        y_col='class',
         target_size=IMG_SIZE,
         batch_size=BATCH_SIZE,
         class_mode='categorical'
     )
-    val_data = val_gen.flow_from_directory(
-        val_dir,
+    val_data = val_gen.flow_from_dataframe(
+        df_val,
+        x_col='filepath',
+        y_col='class',
         target_size=IMG_SIZE,
         batch_size=BATCH_SIZE,
-        class_mode='categorical'
+        class_mode='categorical',
+        shuffle=False
     )
 
     base = EfficientNetB0(weights='imagenet', include_top=False, input_shape=(224, 224, 3))

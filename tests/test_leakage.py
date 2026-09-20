@@ -33,5 +33,61 @@ class TestLeakage(unittest.TestCase):
         self.assertEqual(len(train_test_overlap), 0, f'Patient leakage between train and test: {train_test_overlap}')
         self.assertEqual(len(val_test_overlap), 0, f'Patient leakage between val and test: {val_test_overlap}')
 
+    def test_every_image_maps_to_exactly_one_split(self):
+        split_path = os.path.join('splits', 'split.csv')
+        if not os.path.exists(split_path):
+            split_path = os.path.join('D:', 'Antigravity_ECG', 'CardioScan', 'splits', 'split.csv')
+        df = pd.read_csv(split_path)
+        split_map = dict(zip(df['ecg_id'], df['split']))
+
+        img_dir = os.path.join('data', 'ecg_images')
+        if not os.path.exists(img_dir):
+            img_dir = os.path.join('D:', 'Antigravity_ECG', 'CardioScan', 'data', 'ecg_images')
+
+        assigned_splits = {}
+        for root, _, files in os.walk(img_dir):
+            for f in files:
+                if f.lower().endswith(('.jpg', '.jpeg', '.png')):
+                    m = re.search(r'(\d+)', f)
+                    if m:
+                        ecg_id = int(m.group(1))
+                        if ecg_id in split_map:
+                            split = split_map[ecg_id]
+                            self.assertIn(split, ['train', 'val', 'test'])
+                            if f in assigned_splits:
+                                self.assertEqual(assigned_splits[f], split)
+                            else:
+                                assigned_splits[f] = split
+
+    def test_no_image_ecg_id_in_two_splits(self):
+        split_path = os.path.join('splits', 'split.csv')
+        if not os.path.exists(split_path):
+            split_path = os.path.join('D:', 'Antigravity_ECG', 'CardioScan', 'splits', 'split.csv')
+        df = pd.read_csv(split_path)
+        split_map = dict(zip(df['ecg_id'], df['split']))
+
+        img_dir = os.path.join('data', 'ecg_images')
+        if not os.path.exists(img_dir):
+            img_dir = os.path.join('D:', 'Antigravity_ECG', 'CardioScan', 'data', 'ecg_images')
+
+        train_ids, val_ids, test_ids = set(), set(), set()
+        for root, _, files in os.walk(img_dir):
+            for f in files:
+                if f.lower().endswith(('.jpg', '.jpeg', '.png')):
+                    m = re.search(r'(\d+)', f)
+                    if m:
+                        ecg_id = int(m.group(1))
+                        s = split_map.get(ecg_id)
+                        if s == 'train':
+                            train_ids.add(ecg_id)
+                        elif s == 'val':
+                            val_ids.add(ecg_id)
+                        elif s == 'test':
+                            test_ids.add(ecg_id)
+
+        self.assertEqual(len(train_ids & val_ids), 0, f'Image ecg_id overlap train-val: {train_ids & val_ids}')
+        self.assertEqual(len(train_ids & test_ids), 0, f'Image ecg_id overlap train-test: {train_ids & test_ids}')
+        self.assertEqual(len(val_ids & test_ids), 0, f'Image ecg_id overlap val-test: {val_ids & test_ids}')
+
 if __name__ == '__main__':
     unittest.main()
