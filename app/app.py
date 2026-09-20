@@ -48,22 +48,22 @@ if len(sample_records) < 5:
 
 def generate_ecg_plot(signal):
     fig, axes = plt.subplots(6, 2, figsize=(10, 6.5), sharex=True)
-    fig.patch.set_facecolor('#0d1117')
+    fig.patch.set_facecolor('#ffffff')
     lead_names = ['I', 'II', 'III', 'aVR', 'aVL', 'aVF', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6']
     
     t = np.linspace(0, 10, 1000)
     for idx in range(12):
         r, c = idx % 6, idx // 6
         ax = axes[r, c]
-        ax.set_facecolor('#161b22')
-        ax.plot(t, signal[:, idx], color='#00e5ff', linewidth=1.1)
-        ax.set_title(f"Lead {lead_names[idx]}", color='#c9d1d9', fontsize=8.5, pad=2, loc='left', weight='bold')
-        ax.grid(True, color='#21262d', linestyle='--', linewidth=0.5)
-        ax.tick_params(colors='#8b949e', labelsize=7)
+        ax.set_facecolor('#fafafa')
+        ax.plot(t, signal[:, idx], color='#1a9e60', linewidth=1.2)
+        ax.set_title(f"Lead {lead_names[idx]}", color='#111111', fontsize=8.5, pad=2, loc='left', weight='bold')
+        ax.grid(True, color='#e5e5e5', linestyle='--', linewidth=0.6)
+        ax.tick_params(colors='#888888', labelsize=7)
         for spine in ax.spines.values():
-            spine.set_color('#30363d')
+            spine.set_color('#e0e0e0')
             
-    fig.text(0.5, 0.01, 'Time (seconds)', ha='center', color='#8b949e', fontsize=8.5)
+    fig.text(0.5, 0.01, 'Time (seconds)', ha='center', color='#888888', fontsize=8.5)
     plt.tight_layout()
     
     buf = io.BytesIO()
@@ -95,42 +95,44 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CardioScan — ECG Screening Demo</title>
+  <title>CardioScan — ECG Disease Detection</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #090d16;
-      --card-bg: #111827;
-      --card-border: #1f2937;
-      --accent: #00e5ff;
-      --accent-glow: rgba(0, 229, 255, 0.15);
-      --text: #f3f4f6;
-      --text-muted: #9ca3af;
+      --primary: #1a9e60;
+      --primary-dark: #0d6e42;
+      --primary-light: #f0faf5;
+      --primary-border: #b7e5cf;
+      --bg: #fafafa;
+      --card-bg: #ffffff;
+      --card-border: #e8e8e8;
+      --text-dark: #111111;
+      --text-body: #555555;
+      --text-muted: #aaaaaa;
     }
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
-    body { background-color: var(--bg); color: var(--text); padding-bottom: 60px; line-height: 1.5; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', -apple-system, sans-serif; }
+    body { background-color: var(--bg); color: var(--text-dark); padding-bottom: 60px; line-height: 1.5; }
 
-    /* Educational Top Banner */
+    /* Top Red Educational Banner */
     .edu-banner {
-      background: linear-gradient(90deg, #991b1b, #dc2626);
+      background: #d93025;
       color: #ffffff;
       text-align: center;
-      padding: 9px 16px;
+      padding: 10px 16px;
       font-size: 13.5px;
       font-weight: 700;
-      letter-spacing: 0.4px;
+      letter-spacing: 0.3px;
       display: flex;
       align-items: center;
       justify-content: center;
       gap: 8px;
-      box-shadow: 0 2px 10px rgba(220, 38, 38, 0.2);
     }
 
-    /* Header Navigation */
+    /* HEADER */
     header {
-      background-color: #0f172a;
-      border-bottom: 1px solid #1e293b;
+      background: #ffffff;
+      border-bottom: 1px solid var(--card-border);
       padding: 16px 36px;
       display: flex;
       justify-content: space-between;
@@ -139,171 +141,156 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     .brand { display: flex; align-items: center; gap: 12px; }
     .logo-icon {
       width: 36px; height: 36px;
-      background: linear-gradient(135deg, #00e5ff, #3b82f6);
       border-radius: 10px;
+      background: var(--primary-light);
+      border: 1px solid var(--primary-border);
       display: flex; align-items: center; justify-content: center;
-      box-shadow: 0 0 15px rgba(0, 229, 255, 0.4);
     }
-    .logo-text { font-size: 20px; font-weight: 800; color: #ffffff; letter-spacing: -0.5px; }
-    .logo-tag { font-size: 11px; background: rgba(0, 229, 255, 0.1); color: #00e5ff; border: 1px solid rgba(0, 229, 255, 0.3); padding: 2px 8px; border-radius: 20px; font-weight: 600; }
+    .logo-icon svg { stroke: var(--primary); width: 20px; height: 20px; stroke-width: 2.2; }
+    .logo-text { font-size: 20px; font-weight: 800; color: var(--text-dark); letter-spacing: -0.4px; }
+    .logo-tag { font-size: 11px; background: var(--primary-light); color: var(--primary-dark); border: 1px solid var(--primary-border); padding: 2px 8px; border-radius: 99px; font-weight: 600; margin-left: 6px; }
     .header-right { font-size: 13px; color: var(--text-muted); font-weight: 500; }
 
-    /* Hero Section */
+    /* HERO */
     .hero {
-      padding: 32px 36px 20px 36px;
-      max-width: 1300px;
+      max-width: 1150px;
       margin: 0 auto;
+      padding: 32px 36px 16px 36px;
     }
-    .hero h1 { font-size: 26px; font-weight: 800; color: #ffffff; margin-bottom: 6px; }
-    .hero p { color: var(--text-muted); font-size: 14.5px; max-width: 800px; }
+    .hero h1 { font-size: 26px; font-weight: 800; color: var(--text-dark); letter-spacing: -0.5px; margin-bottom: 6px; }
+    .hero p { color: var(--text-body); font-size: 14.5px; max-width: 800px; }
 
-    /* Layout Grid */
-    .main-grid {
-      max-width: 1300px;
+    /* MAIN GRID */
+    .main {
+      max-width: 1150px;
       margin: 0 auto;
       padding: 0 36px;
       display: grid;
       grid-template-columns: 360px 1fr;
       gap: 28px;
+      align-items: start;
     }
-    @media (max-width: 992px) { .main-grid { grid-template-columns: 1fr; padding: 0 20px; } }
+    @media (max-width: 900px) { .main { grid-template-columns: 1fr; padding: 0 20px; } }
 
-    /* Card Panels */
-    .panel-card {
+    /* PANELS */
+    .panel {
       background: var(--card-bg);
       border: 1px solid var(--card-border);
       border-radius: 16px;
       padding: 24px;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
     }
-    .panel-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 20px;
-    }
-    .panel-title { font-size: 16px; font-weight: 700; color: #ffffff; display: flex; align-items: center; gap: 8px; }
+    .panel-title { font-size: 14px; font-weight: 700; color: var(--text-dark); margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; }
 
-    /* Sample Selector Cards */
-    .sample-list { display: flex; flex-direction: column; gap: 12px; max-height: 600px; overflow-y: auto; padding-right: 4px; }
+    /* SAMPLE CARDS (LEFT) */
+    .sample-list { display: flex; flex-direction: column; gap: 10px; max-height: 580px; overflow-y: auto; padding-right: 2px; }
     .sample-card {
-      background: #192132;
-      border: 1px solid #26334d;
+      background: #fafafa;
+      border: 1.5px solid #eaeaea;
       border-radius: 12px;
       padding: 14px 16px;
       cursor: pointer;
-      transition: all 0.25s ease;
-      position: relative;
-      overflow: hidden;
+      transition: all 0.15s ease;
     }
     .sample-card:hover {
-      border-color: var(--accent);
-      transform: translateY(-2px);
-      box-shadow: 0 6px 20px rgba(0, 229, 255, 0.15);
+      border-color: var(--primary);
+      background: var(--primary-light);
     }
     .sample-card.active {
-      background: linear-gradient(135deg, rgba(0, 229, 255, 0.12), rgba(59, 130, 246, 0.12));
-      border-color: var(--accent);
-      box-shadow: 0 0 20px rgba(0, 229, 255, 0.2);
+      background: var(--primary-light);
+      border-color: var(--primary);
+      box-shadow: 0 4px 12px rgba(26, 158, 96, 0.12);
     }
-    .sample-card.active::before {
-      content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--accent);
-    }
-    .sample-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-    .sample-id { font-weight: 700; font-size: 14px; color: #ffffff; }
-    .sample-meta { font-size: 12px; color: var(--text-muted); }
+    .sample-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+    .sample-id { font-weight: 700; font-size: 14px; color: var(--text-dark); }
+    .sample-meta { font-size: 12px; color: #888888; }
 
-    /* Risk Badges */
-    .risk-badge {
-      font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 6px; text-transform: uppercase; letter-spacing: 0.5px;
+    /* RISK PILLS */
+    .risk-pill {
+      height: 22px; padding: 0 10px; border-radius: 99px; font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; display: inline-flex; align-items: center;
     }
-    .risk-norm { background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); }
-    .risk-mi { background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); }
-    .risk-other { background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); }
+    .rp-low { background: #d4f5e5; color: #0d6e42; border: 1px solid #b7e5cf; }
+    .rp-high { background: #fde0e0; color: #991b1b; border: 1px solid #f5c0c0; }
+    .rp-moderate { background: #fef3cc; color: #8a6400; border: 1px solid #f5dfa0; }
 
-    /* Diagnostic Banner Box */
+    /* DIAGNOSIS BANNER */
     .diag-banner {
-      background: linear-gradient(135deg, #1e293b, #0f172a);
       border-radius: 14px;
       padding: 20px 24px;
-      border: 1px solid #334155;
-      margin-bottom: 24px;
+      margin-bottom: 20px;
       display: flex;
       justify-content: space-between;
-      align-items: center;
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      align-items: flex-start;
     }
-    .diag-title { font-size: 22px; font-weight: 800; color: #ffffff; }
-    .diag-sub { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
-    .source-tag { font-size: 11px; background: #1e293b; color: #38bdf8; padding: 4px 10px; border-radius: 6px; font-weight: 600; border: 1px solid #334155; display: inline-block; margin-top: 8px; }
+    .db-low { background: #f0faf5; border: 1px solid #b7e5cf; }
+    .db-high { background: #fff5f5; border: 1px solid #f5c0c0; }
+    .db-moderate { background: #fffbf0; border: 1px solid #f5dfa0; }
 
-    /* Waveform Plot Frame */
-    .plot-frame {
-      background: #0d1117;
-      border: 1px solid #21262d;
+    .diag-name { font-size: 20px; font-weight: 800; color: var(--text-dark); letter-spacing: -0.3px; }
+    .diag-sub { font-size: 13px; color: var(--text-body); margin-top: 4px; }
+    .source-tag { display: inline-flex; align-items: center; gap: 5px; margin-top: 10px; font-size: 11px; color: #666; background: #ffffff; padding: 3px 10px; border-radius: 99px; border: 1px solid var(--card-border); font-weight: 600; }
+    .source-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); }
+
+    /* WAVEFORM DISPLAY CANVAS */
+    .plot-container {
+      background: #ffffff;
+      border: 1px solid var(--card-border);
       border-radius: 14px;
       padding: 12px;
-      margin-bottom: 24px;
-      box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.8);
+      margin-bottom: 20px;
       position: relative;
     }
     .plot-img { width: 100%; height: auto; border-radius: 8px; display: block; }
 
-    /* Metrics Grid */
-    .metrics-grid {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 16px;
-      margin-bottom: 24px;
-    }
-    @media (max-width: 768px) { .metrics-grid { grid-template-columns: repeat(2, 1fr); } }
+    /* METRICS */
+    .section-label { font-size: 11px; font-weight: 700; color: var(--text-muted); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 12px; }
+    .metrics { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 20px; }
+    .metric { background: #f7f7f5; border-radius: 12px; padding: 16px; border: 1px solid #eeeeee; }
+    .metric-label { font-size: 10px; font-weight: 700; color: var(--text-muted); letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 6px; }
+    .metric-value { font-size: 26px; font-weight: 800; color: var(--text-dark); letter-spacing: -0.5px; }
+    .metric-unit { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+    .rule-tag { display: inline-block; margin-top: 6px; font-size: 10px; font-weight: 700; color: var(--primary-dark); background: var(--primary-light); border: 1px solid var(--primary-border); padding: 2px 7px; border-radius: 4px; text-transform: uppercase; }
+
+    /* PROBABILITIES */
+    .probs-wrap { background: #ffffff; border: 1px solid var(--card-border); border-radius: 14px; padding: 20px; margin-bottom: 20px; }
+    .probs-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+    .probs-title { font-size: 14px; font-weight: 700; color: var(--text-dark); }
+    .conf-badge { font-size: 11px; font-weight: 700; background: var(--primary-light); color: var(--primary-dark); border: 1px solid var(--primary-border); padding: 3px 10px; border-radius: 99px; }
     
-    .metric-card {
-      background: #161e2e;
-      border: 1px solid #232f48;
-      border-radius: 12px;
-      padding: 16px;
-      transition: all 0.2s;
-    }
-    .metric-card:hover { border-color: #38bdf8; }
-    .m-label { font-size: 12px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
-    .m-value { font-size: 24px; font-weight: 800; color: #00e5ff; margin: 4px 0 2px 0; font-family: 'JetBrains Mono', monospace; }
-    .m-unit { font-size: 11px; color: var(--text-muted); }
-    .rule-tag { font-size: 10px; background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); padding: 2px 6px; border-radius: 4px; font-weight: 700; text-transform: uppercase; display: inline-block; margin-top: 6px; }
-
-    /* Probabilities Section */
-    .probs-card {
-      background: #161e2e;
-      border: 1px solid #232f48;
-      border-radius: 12px;
-      padding: 20px;
-    }
-    .probs-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
     .prob-row { margin-bottom: 12px; }
-    .prob-info { display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
-    .prob-track { background: #232f48; height: 10px; border-radius: 6px; overflow: hidden; }
-    .prob-fill { height: 100%; border-radius: 6px; transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1); }
-    .pf-mi { background: linear-gradient(90deg, #ef4444, #f87171); }
-    .pf-norm { background: linear-gradient(90deg, #10b981, #34d399); }
-    .pf-other { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+    .prob-top { display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 13px; }
+    .prob-name { font-weight: 600; color: var(--text-dark); }
+    .prob-pct { font-weight: 700; color: var(--text-body); }
+    .prob-track { height: 7px; background: #f0f0f0; border-radius: 99px; overflow: hidden; }
+    .prob-fill { height: 100%; border-radius: 99px; transition: width 0.5s ease; }
+    .pf-norm { background: var(--primary); }
+    .pf-mi { background: #d93025; }
+    .pf-other { background: #d97706; }
 
-    /* Loading Spinner */
-    .loading-overlay {
-      position: absolute; inset: 0; background: rgba(13, 17, 23, 0.85); backdrop-filter: blur(4px);
-      display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 14px; z-index: 10;
-    }
-    .spinner { width: 42px; height: 42px; border: 3px solid #21262d; border-top-color: #00e5ff; border-radius: 50%; animation: spin 0.8s linear infinite; }
-    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    /* DISCLAIMER BOX */
+    .disclaimer { background: #ffffff; border: 1px solid var(--card-border); border-radius: 12px; padding: 16px 18px; display: flex; gap: 12px; align-items: flex-start; }
+    .disc-icon { width: 32px; height: 32px; border-radius: 8px; background: #fffbeb; border: 1px solid #f5dfa0; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .disc-icon svg { width: 16px; height: 16px; stroke: #d97706; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .disc-title { font-size: 12px; font-weight: 700; color: var(--text-dark); margin-bottom: 3px; }
+    .disc-text { font-size: 12px; color: var(--text-body); line-height: 1.6; }
 
-    footer {
-      max-width: 1300px; margin: 40px auto 0 auto; padding: 20px 36px; border-top: 1px solid #1e293b;
-      display: flex; justify-content: space-between; align-items: center; color: var(--text-muted); font-size: 13px;
+    /* SPINNER */
+    .spinner-overlay {
+      position: absolute; inset: 0; background: rgba(255, 255, 255, 0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 14px; z-index: 10;
     }
+    .spinner { width: 36px; height: 36px; border: 3px solid #e8e8e8; border-top-color: var(--primary); border-radius: 50%; animation: spin 0.7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* FOOTER */
+    footer { background: #ffffff; border-top: 1px solid var(--card-border); padding: 24px 36px; margin-top: 40px; }
+    .footer-inner { max-width: 1150px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; font-size: 13px; color: var(--text-muted); }
+    .footer-tags { display: flex; gap: 8px; }
+    .ftag { font-size: 11px; color: #888888; background: #f5f5f5; padding: 3px 10px; border-radius: 99px; border: 1px solid #e8e8e8; }
   </style>
 </head>
 <body>
 
-  <!-- Top Educational Banner -->
+  <!-- Top Red Educational Banner -->
   <div class="edu-banner">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
     Educational demo. Not a medical device.
@@ -312,7 +299,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   <header>
     <div class="brand">
       <div class="logo-icon">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
       </div>
       <div>
         <span class="logo-text">CardioScan</span>
@@ -324,18 +311,15 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
   <div class="hero">
     <h1>ECG Diagnostic Screening Demo</h1>
-    <p>Select a 12-lead ECG sample record from the benchmark PTB-XL dataset below to run automated waveform analysis using our trained 1D Convolutional Neural Network.</p>
+    <p>Select a 12-lead ECG sample record from the benchmark PTB-XL dataset to analyze raw digital signals with our 1D Convolutional Neural Network.</p>
   </div>
 
-  <div class="main-grid">
-    <!-- Left Panel: Sample Selector -->
-    <div class="panel-card">
-      <div class="panel-header">
-        <span class="panel-title">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#00e5ff" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/></svg>
-          PTB-XL Sample Records
-        </span>
-        <span style="font-size:12px; color:var(--text-muted);">{{ samples|length }} Records</span>
+  <div class="main">
+    <!-- LEFT PANEL: SAMPLE SELECTOR -->
+    <div class="panel">
+      <div class="panel-title">
+        <span>PTB-XL Sample Records</span>
+        <span style="font-size:12px; color:var(--text-muted); font-weight:normal;">{{ samples|length }} records</span>
       </div>
 
       <div class="sample-list">
@@ -343,7 +327,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <div class="sample-card {% if loop.first %}active{% endif %}" onclick="selectSample({{ sample.id }}, this)">
           <div class="sample-top">
             <span class="sample-id">Record #{{ sample.id }}</span>
-            <span class="risk-badge {% if sample.label == 'NORM' %}risk-norm{% elif sample.label == 'MI' %}risk-mi{% else %}risk-other{% endif %}">
+            <span class="risk-pill {% if sample.label == 'NORM' %}rp-low{% elif sample.label == 'MI' %}rp-high{% else %}rp-moderate{% endif %}">
               {{ sample.label }}
             </span>
           </div>
@@ -355,70 +339,88 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       </div>
     </div>
 
-    <!-- Right Panel: Waveform Display & Diagnostic Results -->
+    <!-- RIGHT PANEL: RESULTS & DISPLAY -->
     <div>
-      <!-- Diagnostic Banner -->
-      <div class="diag-banner">
+      <!-- DIAGNOSIS BANNER -->
+      <div class="diag-banner db-low" id="diag-banner">
         <div>
-          <div class="diag-title" id="pred-class-title">Analyzing...</div>
-          <div class="diag-sub" id="ground-truth-text">PTB-XL Ground Truth: --</div>
-          <div class="source-tag">1D Waveform CNN — PTB-XL trained</div>
+          <div class="diag-name" id="pred-class-name">Analyzing...</div>
+          <div class="diag-sub" id="ground-truth-sub">PTB-XL Ground Truth: --</div>
+          <div class="source-tag"><span class="source-dot"></span> 1D Waveform CNN — PTB-XL trained</div>
         </div>
-        <div id="risk-pill-box">
-          <!-- Filled dynamically -->
+        <div id="risk-pill-container">
+          <span class="risk-pill rp-low">Normal</span>
         </div>
       </div>
 
-      <!-- Waveform Plot Frame -->
-      <div class="plot-frame">
-        <div class="loading-overlay" id="loading-overlay">
+      <!-- WAVEFORM DISPLAY CANVAS -->
+      <div class="plot-container">
+        <div class="spinner-overlay" id="spinner-overlay">
           <div class="spinner"></div>
-          <div style="margin-top:12px; font-size:13px; color:#00e5ff; font-weight:600;">Processing 100 Hz 12-Lead Signals...</div>
+          <div style="margin-top:10px; font-size:13px; color:#555; font-weight:600;">Processing 12-Lead Signals...</div>
         </div>
         <img id="ecg-plot-img" class="plot-img" src="" alt="12-Lead ECG Plot" style="display:none;">
       </div>
 
-      <!-- Signal Metrics Grid -->
-      <div class="metrics-grid">
-        <div class="metric-card">
-          <div class="m-label">Heart Rate</div>
-          <div class="m-value" id="m-bpm">--</div>
-          <div class="m-unit">BPM</div>
+      <!-- METRICS GRID -->
+      <div class="section-label">Signal Metrics</div>
+      <div class="metrics">
+        <div class="metric">
+          <div class="metric-label">Heart Rate</div>
+          <div class="metric-value" id="m-bpm">--</div>
+          <div class="metric-unit">BPM</div>
           <div class="rule-tag">rule-based signal analysis</div>
         </div>
-        <div class="metric-card">
-          <div class="m-label">R-Peaks</div>
-          <div class="m-value" id="m-peaks">--</div>
-          <div class="m-unit">Detected</div>
+        <div class="metric">
+          <div class="metric-label">R-Peaks</div>
+          <div class="metric-value" id="m-peaks">--</div>
+          <div class="metric-unit">Detected</div>
         </div>
-        <div class="metric-card">
-          <div class="m-label">RMSSD</div>
-          <div class="m-value" id="m-rmssd">--</div>
-          <div class="m-unit">ms • HRV</div>
+        <div class="metric">
+          <div class="metric-label">RMSSD</div>
+          <div class="metric-value" id="m-rmssd">--</div>
+          <div class="metric-unit">ms • HRV</div>
         </div>
-        <div class="metric-card">
-          <div class="m-label">RR Std Dev</div>
-          <div class="m-value" id="m-rrstd">--</div>
-          <div class="m-unit">ms • Rhythm</div>
+        <div class="metric">
+          <div class="metric-label">RR Std Dev</div>
+          <div class="metric-value" id="m-rrstd">--</div>
+          <div class="metric-unit">ms • Rhythm</div>
         </div>
       </div>
 
-      <!-- Class Probabilities Panel -->
-      <div class="probs-card">
-        <div class="probs-header">
-          <span style="font-size:15px; font-weight:700; color:#ffffff;">Model Class Probabilities</span>
-          <span style="font-size:12px; color:var(--text-muted);" id="confidence-score">--</span>
+      <!-- CLASS PROBABILITIES -->
+      <div class="probs-wrap">
+        <div class="probs-head">
+          <span class="probs-title">Model Class Probabilities</span>
+          <span class="conf-badge" id="conf-badge">--% confidence</span>
         </div>
-        <div id="prob-bars-container">
-          <!-- Probability bars dynamically generated -->
+        <div id="prob-bars-list">
+          <!-- Probability bars generated dynamically -->
+        </div>
+      </div>
+
+      <!-- CLINICAL DISCLAIMER -->
+      <div class="disclaimer">
+        <div class="disc-icon">
+          <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        </div>
+        <div>
+          <div class="disc-title">Clinical Disclaimer</div>
+          <div class="disc-text">This tool is developed for educational and research purposes as part of an academic project. Results must not replace a physician's interpretation or formal clinical ECG reading. Always consult a qualified cardiologist for medical diagnosis.</div>
         </div>
       </div>
     </div>
   </div>
 
   <footer>
-    <div><strong>CardioScan</strong> • ECG Classification Project • Educational Use Only</div>
-    <div>PTB-XL Dataset (Wagner et al., 2020)</div>
+    <div class="footer-inner">
+      <div><strong>CardioScan</strong> • ECG Classification Project • Educational Use Only</div>
+      <div class="footer-tags">
+        <span class="ftag">PTB-XL Dataset</span>
+        <span class="ftag">1D CNN Model</span>
+        <span class="ftag">Flask</span>
+      </div>
+    </div>
   </footer>
 
   <script>
@@ -432,30 +434,35 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     }
 
     async function loadSampleData(id) {
-      const loader = document.getElementById('loading-overlay');
+      const overlay = document.getElementById('spinner-overlay');
       const img = document.getElementById('ecg-plot-img');
-      loader.style.display = 'flex';
+      overlay.style.display = 'flex';
 
       try {
         const response = await fetch('/api/predict_sample/' + id);
         const data = await response.json();
 
-        // 1. Render Plot
+        // 1. Render Plot Image
         img.src = 'data:image/png;base64,' + data.plot_base64;
         img.style.display = 'block';
 
-        // 2. Render Diagnostic Header
-        document.getElementById('pred-class-title').textContent = data.predicted_class_fullname;
-        document.getElementById('ground-truth-text').textContent = 'PTB-XL Ground Truth: ' + data.ground_truth;
+        // 2. Render Diagnosis Header & Banner
+        document.getElementById('pred-class-name').textContent = data.predicted_class_fullname;
+        document.getElementById('ground-truth-sub').textContent = 'PTB-XL Ground Truth: ' + data.ground_truth;
 
-        const riskBox = document.getElementById('risk-pill-box');
+        const banner = document.getElementById('diag-banner');
+        const pillBox = document.getElementById('risk-pill-container');
         const pred = data.predicted_class;
+
         if (pred === 'NORM') {
-          riskBox.innerHTML = '<span class="risk-badge risk-norm" style="font-size:14px; padding:6px 14px;">Normal ECG</span>';
+          banner.className = 'diag-banner db-low';
+          pillBox.innerHTML = '<span class="risk-pill rp-low">Normal Risk</span>';
         } else if (pred === 'MI') {
-          riskBox.innerHTML = '<span class="risk-badge risk-mi" style="font-size:14px; padding:6px 14px;">High Risk • MI</span>';
+          banner.className = 'diag-banner db-high';
+          pillBox.innerHTML = '<span class="risk-pill rp-high">High Risk • MI</span>';
         } else {
-          riskBox.innerHTML = '<span class="risk-badge risk-other" style="font-size:14px; padding:6px 14px;">Abnormal ECG</span>';
+          banner.className = 'diag-banner db-moderate';
+          pillBox.innerHTML = '<span class="risk-pill rp-moderate">Moderate Risk</span>';
         }
 
         // 3. Render Metrics
@@ -466,35 +473,36 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
         // 4. Render Probabilities
         const probs = data.probabilities;
-        let probHtml = '';
-        const classNames = {
+        let html = '';
+        const names = {
+          'NORM': 'Normal (NORM)',
           'MI': 'Myocardial Infarction (MI)',
-          'NORM': 'Normal Electrocardiogram (NORM)',
-          'OTHER_ABNORMAL': 'Other Abnormalities (STTC / CD / HYP)'
+          'OTHER_ABNORMAL': 'Other Abnormal (STTC/CD/HYP)'
         };
-        const fillClasses = { 'MI': 'pf-mi', 'NORM': 'pf-norm', 'OTHER_ABNORMAL': 'pf-other' };
+        const fills = { 'NORM': 'pf-norm', 'MI': 'pf-mi', 'OTHER_ABNORMAL': 'pf-other' };
 
         for (const [cls, prob] of Object.entries(probs)) {
           const pct = (prob * 100).toFixed(1);
-          probHtml += `
+          html += `
             <div class="prob-row">
-              <div class="prob-info">
-                <span>${classNames[cls] || cls}</span>
-                <span>${pct}%</span>
+              <div class="prob-top">
+                <span class="prob-name">${names[cls] || cls}</span>
+                <span class="prob-pct">${pct}%</span>
               </div>
               <div class="prob-track">
-                <div class="prob-fill ${fillClasses[cls] || 'pf-norm'}" style="width: ${pct}%;"></div>
+                <div class="prob-fill ${fills[cls] || 'pf-norm'}" style="width: ${pct}%;"></div>
               </div>
             </div>
           `;
         }
-        document.getElementById('prob-bars-container').innerHTML = probHtml;
-        document.getElementById('confidence-score').textContent = (Math.max(...Object.values(probs)) * 100).toFixed(1) + '% Top Confidence';
+        document.getElementById('prob-bars-list').innerHTML = html;
+        const maxProb = Math.max(...Object.values(probs));
+        document.getElementById('conf-badge').textContent = (maxProb * 100).toFixed(1) + '% confidence';
 
       } catch (err) {
         console.error(err);
       } finally {
-        loader.style.display = 'none';
+        overlay.style.display = 'none';
       }
     }
 
@@ -517,10 +525,10 @@ def predict_sample(sample_id):
         
     signal = np.load(rec_info['file']) # shape (1000, 12)
     
-    # 1. Metrics & Rule-based HR
+    # Metrics
     bpm, num_peaks, rmssd, rr_std = calculate_signal_metrics(signal[:, 1])
     
-    # 2. 1D Waveform CNN Prediction
+    # 1D CNN Prediction
     sig_mean = np.mean(signal, axis=0, keepdims=True)
     sig_std = np.std(signal, axis=0, keepdims=True) + 1e-6
     sig_norm = (signal - sig_mean) / sig_std
@@ -538,9 +546,9 @@ def predict_sample(sample_id):
         probs_dict = {'MI': 0.1, 'NORM': 0.8, 'OTHER_ABNORMAL': 0.1}
         
     fullnames = {
-        'NORM': 'Normal ECG Pattern',
-        'MI': 'Myocardial Infarction Detected',
-        'OTHER_ABNORMAL': 'Other Abnormal ECG Pattern'
+        'NORM': 'Normal Electrocardiogram',
+        'MI': 'Myocardial Infarction',
+        'OTHER_ABNORMAL': 'Other ECG Abnormality'
     }
     
     plot_base64 = generate_ecg_plot(signal)
@@ -559,5 +567,5 @@ def predict_sample(sample_id):
     })
 
 if __name__ == "__main__":
-    print("Starting CardioScan Premium App on http://127.0.0.1:5000...")
+    print("Starting CardioScan White & Emerald App on http://127.0.0.1:5000...")
     app.run(host="0.0.0.0", port=5000, debug=False)
