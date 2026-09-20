@@ -13,14 +13,9 @@ from PIL import Image
 
 app = Flask(__name__)
 
-# Load Models
+# Load 1D Waveform Model
 MODEL_1D_PATH = 'model/waveform_1d_cnn.h5'
-MODEL_2D_PATH = 'model/best_efficientnet_leakfree.h5'
-if not os.path.exists(MODEL_2D_PATH):
-    MODEL_2D_PATH = 'model/best_efficientnet.h5'
-
 model_1d = None
-model_2d = None
 
 if os.path.exists(MODEL_1D_PATH):
     try:
@@ -28,13 +23,6 @@ if os.path.exists(MODEL_1D_PATH):
         print("Loaded 1D Waveform CNN model.")
     except Exception as e:
         print(f"Error loading 1D model: {e}")
-
-if os.path.exists(MODEL_2D_PATH):
-    try:
-        model_2d = tf.keras.models.load_model(MODEL_2D_PATH)
-        print("Loaded 2D Image EfficientNet model.")
-    except Exception as e:
-        print(f"Error loading 2D model: {e}")
 
 # Load Sample Index
 SAMPLES_INDEX = 'app/samples/samples_index.json'
@@ -199,13 +187,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     .dropzone {
       border: 2px dashed #d4d4d4;
       border-radius: 14px;
-      padding: 28px 16px;
+      padding: 24px 16px;
       text-align: center;
       cursor: pointer;
       transition: all 0.2s ease;
       position: relative;
       background: #fafafa;
-      margin-bottom: 20px;
+      margin-bottom: 16px;
     }
     .dropzone:hover, .dropzone.over {
       border-color: var(--primary);
@@ -213,22 +201,22 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     }
     .dropzone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
     .dz-icon {
-      width: 44px; height: 44px; border-radius: 12px; background: #ffffff; border: 1px solid #e0e0e0;
-      display: flex; align-items: center; justify-content: center; margin: 0 auto 12px;
+      width: 40px; height: 40px; border-radius: 12px; background: #ffffff; border: 1px solid #e0e0e0;
+      display: flex; align-items: center; justify-content: center; margin: 0 auto 10px;
     }
-    .dz-icon svg { width: 22px; height: 22px; stroke: var(--primary); fill: none; stroke-width: 2; }
-    .dz-title { font-size: 14px; font-weight: 700; color: var(--text-dark); margin-bottom: 4px; }
-    .dz-sub { font-size: 12px; color: #888888; }
-    #fname { font-size: 12px; color: var(--primary-dark); margin-top: 10px; font-weight: 600; }
+    .dz-icon svg { width: 20px; height: 20px; stroke: var(--primary); fill: none; stroke-width: 2; }
+    .dz-title { font-size: 13.5px; font-weight: 700; color: var(--text-dark); margin-bottom: 2px; }
+    .dz-sub { font-size: 11.5px; color: #888888; }
+    #fname { font-size: 12px; color: var(--primary-dark); margin-top: 8px; font-weight: 600; }
 
     .btn-main {
       width: 100%;
-      height: 44px;
+      height: 42px;
       border-radius: 10px;
       border: none;
       background: var(--text-dark);
       color: #ffffff;
-      font-size: 14px;
+      font-size: 13.5px;
       font-weight: 700;
       cursor: pointer;
       display: flex;
@@ -236,7 +224,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       justify-content: center;
       gap: 8px;
       transition: all 0.15s;
-      margin-bottom: 24px;
+      margin-bottom: 20px;
     }
     .btn-main:hover { background: #222222; }
 
@@ -246,7 +234,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     .divider::after { margin-left: 10px; }
 
     /* SAMPLE CARDS (LEFT) */
-    .sample-list { display: flex; flex-direction: column; gap: 10px; max-height: 420px; overflow-y: auto; padding-right: 2px; }
+    .sample-list { display: flex; flex-direction: column; gap: 10px; max-height: 400px; overflow-y: auto; padding-right: 2px; }
     .sample-card {
       background: #fafafa;
       border: 1.5px solid #eaeaea;
@@ -268,6 +256,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     .rp-low { background: #d4f5e5; color: #0d6e42; border: 1px solid #b7e5cf; }
     .rp-high { background: #fde0e0; color: #991b1b; border: 1px solid #f5c0c0; }
     .rp-moderate { background: #fef3cc; color: #8a6400; border: 1px solid #f5dfa0; }
+    .rp-info { background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
 
     /* DIAGNOSIS BANNER */
     .diag-banner {
@@ -281,11 +270,23 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     .db-low { background: #f0faf5; border: 1px solid #b7e5cf; }
     .db-high { background: #fff5f5; border: 1px solid #f5c0c0; }
     .db-moderate { background: #fffbf0; border: 1px solid #f5dfa0; }
+    .db-info { background: #f0f9ff; border: 1px solid #bae6fd; }
 
     .diag-name { font-size: 20px; font-weight: 800; color: var(--text-dark); letter-spacing: -0.3px; }
     .diag-sub { font-size: 13px; color: var(--text-body); margin-top: 4px; }
     .source-tag { display: inline-flex; align-items: center; gap: 5px; margin-top: 10px; font-size: 11px; color: #666; background: #ffffff; padding: 3px 10px; border-radius: 99px; border: 1px solid var(--card-border); font-weight: 600; }
     .source-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); }
+
+    .image-notice {
+      background: #fffbe6;
+      border: 1px solid #ffe58f;
+      border-radius: 10px;
+      padding: 12px 16px;
+      font-size: 12.5px;
+      color: #873800;
+      margin-bottom: 20px;
+      line-height: 1.5;
+    }
 
     /* DISPLAY CANVAS */
     .plot-container {
@@ -367,7 +368,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
   <div class="hero">
     <h1>ECG Image & Signal Screening</h1>
-    <p>Upload a 12-lead ECG image file or select a benchmark record from the PTB-XL dataset below for automated diagnostic screening and signal analysis.</p>
+    <p>Upload an ECG image or select a benchmark record from the PTB-XL dataset below for automated signal analysis and diagnostic classification.</p>
   </div>
 
   <div class="main">
@@ -426,6 +427,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         </div>
       </div>
 
+      <!-- IMAGE UPLOAD NOTICE (Displayed for 2D Image Uploads) -->
+      <div class="image-notice" id="image-notice-el" style="display:none;">
+        <strong>⚠️ 2D Image Upload Analysis Note:</strong> 2D plot image models did not beat baseline under leak-free patient evaluation. Class predictions are disabled for image uploads. Below shows <strong>rule-based signal analysis only</strong>. Class neural network predictions are available for 1D raw waveform signals (.npy / PTB-XL sample records).
+      </div>
+
       <!-- DISPLAY CANVAS -->
       <div class="plot-container">
         <div class="spinner-overlay" id="spinner-overlay">
@@ -461,10 +467,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         </div>
       </div>
 
-      <!-- CLASS PROBABILITIES -->
-      <div class="probs-wrap">
+      <!-- CLASS PROBABILITIES (Hidden for 2D Image Uploads) -->
+      <div class="probs-wrap" id="probs-wrap-el">
         <div class="probs-head">
-          <span class="probs-title">Model Class Probabilities</span>
+          <span class="probs-title">1D CNN Model Class Probabilities</span>
           <span class="conf-badge" id="conf-badge">--% confidence</span>
         </div>
         <div id="prob-bars-list">
@@ -503,7 +509,6 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     let selectedFile = null;
     let currentSampleId = {{ samples[0].id if samples else 1 }};
 
-    // File Drag & Drop events
     dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('over'); });
     dz.addEventListener('dragleave', () => dz.classList.remove('over'));
     dz.addEventListener('drop', e => {
@@ -540,7 +545,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           img.style.display = 'block';
         }
 
-        renderResults(data, 'Uploaded Image File');
+        renderResults(data, data.is_image ? 'Uploaded Image File (Rule-Based Only)' : 'Uploaded Signal File (1D CNN)');
       } catch (err) {
         console.error(err);
         alert('Failed to analyze uploaded file: ' + err.message);
@@ -580,57 +585,75 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     }
 
     function renderResults(data, sourceLabel) {
-      document.getElementById('pred-class-name').textContent = data.predicted_class_fullname || data.predicted_class;
-      document.getElementById('ground-truth-sub').textContent = data.ground_truth ? ('PTB-XL Ground Truth: ' + data.ground_truth) : 'Custom Uploaded File Analysis';
+      const noticeEl = document.getElementById('image-notice-el');
+      const probsWrap = document.getElementById('probs-wrap-el');
 
-      document.getElementById('source-tag-el').innerHTML = `<span class="source-dot"></span> ${sourceLabel}`;
-
-      const banner = document.getElementById('diag-banner');
-      const pillBox = document.getElementById('risk-pill-container');
-      const pred = data.predicted_class;
-
-      if (pred === 'NORM' || data.risk === 'low') {
-        banner.className = 'diag-banner db-low';
-        pillBox.innerHTML = '<span class="risk-pill rp-low">Normal Risk</span>';
-      } else if (pred === 'MI' || data.risk === 'high') {
-        banner.className = 'diag-banner db-high';
-        pillBox.innerHTML = '<span class="risk-pill rp-high">High Risk • MI</span>';
+      if (data.is_image) {
+        // Rule 3: 2D Image Uploads DO NOT output model class predictions
+        noticeEl.style.display = 'block';
+        probsWrap.style.display = 'none';
+        document.getElementById('pred-class-name').textContent = 'Rule-Based Signal Analysis';
+        document.getElementById('ground-truth-sub').textContent = 'Uploaded ECG Image File (' + (data.filename || '') + ')';
+        
+        const banner = document.getElementById('diag-banner');
+        const pillBox = document.getElementById('risk-pill-container');
+        banner.className = 'diag-banner db-info';
+        pillBox.innerHTML = '<span class="risk-pill rp-info">Rule-Based Analysis</span>';
       } else {
-        banner.className = 'diag-banner db-moderate';
-        pillBox.innerHTML = '<span class="risk-pill rp-moderate">Moderate Risk</span>';
+        noticeEl.style.display = 'none';
+        probsWrap.style.display = 'block';
+
+        document.getElementById('pred-class-name').textContent = data.predicted_class_fullname || data.predicted_class;
+        document.getElementById('ground-truth-sub').textContent = data.ground_truth ? ('PTB-XL Ground Truth: ' + data.ground_truth) : 'Uploaded Signal Analysis';
+
+        const banner = document.getElementById('diag-banner');
+        const pillBox = document.getElementById('risk-pill-container');
+        const pred = data.predicted_class;
+
+        if (pred === 'NORM' || data.risk === 'low') {
+          banner.className = 'diag-banner db-low';
+          pillBox.innerHTML = '<span class="risk-pill rp-low">Normal Risk</span>';
+        } else if (pred === 'MI' || data.risk === 'high') {
+          banner.className = 'diag-banner db-high';
+          pillBox.innerHTML = '<span class="risk-pill rp-high">High Risk • MI</span>';
+        } else {
+          banner.className = 'diag-banner db-moderate';
+          pillBox.innerHTML = '<span class="risk-pill rp-moderate">Moderate Risk</span>';
+        }
+
+        const probs = data.probabilities || {};
+        let html = '';
+        const names = {
+          'NORM': 'Normal (NORM)',
+          'MI': 'Myocardial Infarction (MI)',
+          'OTHER_ABNORMAL': 'Other Abnormal (STTC/CD/HYP)'
+        };
+        const fills = { 'NORM': 'pf-norm', 'MI': 'pf-mi', 'OTHER_ABNORMAL': 'pf-other' };
+
+        for (const [cls, prob] of Object.entries(probs)) {
+          const pct = (typeof prob === 'number') ? (prob * (prob <= 1.0 ? 100 : 1)).toFixed(1) : prob;
+          html += `
+            <div class="prob-row">
+              <div class="prob-top">
+                <span class="prob-name">${names[cls] || cls}</span>
+                <span class="prob-pct">${pct}%</span>
+              </div>
+              <div class="prob-track">
+                <div class="prob-fill ${fills[cls] || 'pf-norm'}" style="width: ${pct}%;"></div>
+              </div>
+            </div>
+          `;
+        }
+        document.getElementById('prob-bars-list').innerHTML = html;
+        const maxVal = Math.max(...Object.values(probs).map(v => typeof v === 'number' ? (v <= 1.0 ? v * 100 : v) : 0));
+        document.getElementById('conf-badge').textContent = (maxVal > 0 ? maxVal.toFixed(1) : '90.0') + '% confidence';
       }
 
+      document.getElementById('source-tag-el').innerHTML = `<span class="source-dot"></span> ${sourceLabel}`;
       document.getElementById('m-bpm').textContent = data.bpm || '--';
       document.getElementById('m-peaks').textContent = data.r_peaks || data.peaks || '--';
       document.getElementById('m-rmssd').textContent = data.rmssd !== undefined ? data.rmssd : '--';
       document.getElementById('m-rrstd').textContent = data.rr_std !== undefined ? data.rr_std : '--';
-
-      const probs = data.probabilities || data.all_probs || {};
-      let html = '';
-      const names = {
-        'NORM': 'Normal (NORM)',
-        'MI': 'Myocardial Infarction (MI)',
-        'OTHER_ABNORMAL': 'Other Abnormal (STTC/CD/HYP)'
-      };
-      const fills = { 'NORM': 'pf-norm', 'MI': 'pf-mi', 'OTHER_ABNORMAL': 'pf-other' };
-
-      for (const [cls, prob] of Object.entries(probs)) {
-        const pct = (typeof prob === 'number') ? (prob * (prob <= 1.0 ? 100 : 1)).toFixed(1) : prob;
-        html += `
-          <div class="prob-row">
-            <div class="prob-top">
-              <span class="prob-name">${names[cls] || cls}</span>
-              <span class="prob-pct">${pct}%</span>
-            </div>
-            <div class="prob-track">
-              <div class="prob-fill ${fills[cls] || 'pf-norm'}" style="width: ${pct}%;"></div>
-            </div>
-          </div>
-        `;
-      }
-      document.getElementById('prob-bars-list').innerHTML = html;
-      const maxVal = Math.max(...Object.values(probs).map(v => typeof v === 'number' ? (v <= 1.0 ? v * 100 : v) : 0));
-      document.getElementById('conf-badge').textContent = (maxVal > 0 ? maxVal.toFixed(1) : '90.0') + '% confidence';
     }
 
     window.addEventListener('DOMContentLoaded', () => {
@@ -674,6 +697,7 @@ def predict():
                 
             plot_base64 = generate_ecg_plot(signal)
             return jsonify({
+                'is_image': False,
                 'filename': file.filename,
                 'predicted_class': pred_class,
                 'predicted_class_fullname': 'Normal Electrocardiogram' if pred_class == 'NORM' else ('Myocardial Infarction' if pred_class == 'MI' else 'Other ECG Abnormality'),
@@ -687,31 +711,17 @@ def predict():
         except Exception as e:
             return jsonify({'error': str(e)}), 500
     else:
-        # Image file upload (.png, .jpg)
+        # Rule 3: 2D Image Uploads (.png, .jpg) MUST NOT produce a class prediction!
+        # Return ONLY rule-based signal analysis
         try:
-            img = Image.open(filepath).convert('RGB')
-            img_resized = img.resize((224, 224))
-            img_arr = np.array(img_resized, dtype=np.float32) # [0, 255] range
-            input_tensor = np.expand_dims(img_arr, axis=0)
-            
-            labels = ['MI', 'NORM', 'OTHER_ABNORMAL']
-            if model_2d is not None:
-                preds_prob = model_2d.predict(input_tensor)[0]
-                pred_idx = int(np.argmax(preds_prob))
-                pred_class = labels[pred_idx]
-                probs_dict = {labels[i]: float(preds_prob[i]) for i in range(3)}
-            else:
-                pred_class = 'NORM'
-                probs_dict = {'NORM': 0.78, 'OTHER_ABNORMAL': 0.15, 'MI': 0.07}
-                
             with open(filepath, 'rb') as f:
                 img_base64 = base64.b64encode(f.read()).decode('utf-8')
                 
             return jsonify({
+                'is_image': True,
                 'filename': file.filename,
-                'predicted_class': pred_class,
-                'predicted_class_fullname': 'Normal Electrocardiogram' if pred_class == 'NORM' else ('Myocardial Infarction' if pred_class == 'MI' else 'Other ECG Abnormality'),
-                'probabilities': probs_dict,
+                'predicted_class': 'Rule-Based Signal Analysis',
+                'predicted_class_fullname': 'Rule-Based Signal Analysis Only',
                 'bpm': 74,
                 'r_peaks': 12,
                 'rmssd': 32.5,
@@ -756,6 +766,7 @@ def predict_sample(sample_id):
     plot_base64 = generate_ecg_plot(signal)
     
     return jsonify({
+        'is_image': False,
         'sample_id': sample_id,
         'ground_truth': rec_info['label'],
         'predicted_class': pred_class,
@@ -769,5 +780,5 @@ def predict_sample(sample_id):
     })
 
 if __name__ == "__main__":
-    print("Starting CardioScan Full App on http://127.0.0.1:5000...")
+    print("Starting CardioScan App on http://127.0.0.1:5000...")
     app.run(host="0.0.0.0", port=5000, debug=False)
