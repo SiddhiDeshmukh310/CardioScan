@@ -1,0 +1,98 @@
+[
+  {
+    "id": 32,
+    "patient_id": 11154,
+    "age": 18,
+    "sex": 0,
+    "label": "OTHER_ABNORMAL",
+    "file": "app/samples/sample_32_OTHER_ABNORMAL.npy"
+  },
+  {
+    "id": 35,
+    "patient_id": 15539,
+    "age": 20,
+    "sex": 0,
+    "label": "NORM",
+    "file": "app/samples/sample_35_NORM.npy"
+  },
+  {
+    "id": 36,
+    "patient_id": 8787,
+    "age": 55,
+    "sex": 0,
+    "label": "NORM",
+    "file": "app/samples/sample_36_NORM.npy"
+  },
+  {
+    "id": 37,
+    "patient_id": 9123,
+    "age": 25,
+    "sex": 1,
+    "label": "NORM",
+    "file": "app/samples/sample_37_NORM.npy"
+  },
+  {
+    "id": 45,
+    "patient_id": 18794,
+    "age": 51,
+    "sex": 0,
+    "label": "OTHER_ABNORMAL",
+    "file": "app/samples/sample_45_OTHER_ABNORMAL.npy"
+  },
+  {
+    "id": 52,
+    "patient_id": 18153,
+    "age": 35,
+    "sex": 0,
+    "label": "OTHER_ABNORMAL",
+    "file": "app/samples/sample_52_OTHER_ABNORMAL.npy"
+  },
+  {
+    "id": 60,
+    "patient_id": 15065,
+    "age": 55,
+    "sex": 0,
+    "label": "NORM",
+    "file": "app/samples/sample_60_NORM.npy"
+  },
+  {
+    "id": 96,
+    "patient_id": 21698,
+    "age": 31,
+    "sex": 0,
+    "label": "OTHER_ABNORMAL",
+    "file": "app/samples/sample_96_OTHER_ABNORMAL.npy"
+  },
+  {
+    "id": 267,
+    "patient_id": 7662,
+    "age": 61,
+    "sex": 1,
+    "label": "MI",
+    "file": "app/samples/sample_267_MI.npy"
+  },
+  {
+    "id": 307,
+    "patient_id": 6348,
+    "age": 63,
+    "sex": 0,
+    "label": "MI",
+    "file": "app/samples/sample_307_MI.npy"
+  },
+  {
+    "id": 429,
+    "patient_id": 5393,
+    "age": 51,
+    "sex": 0,
+    "label": "MI",
+    "file": "app/samples/sample_429_MI.npy"
+  },
+  {
+    "id": 453,
+    "patient_id": 9795,
+    "age": 59,
+    "sex": 0,
+    "label": "MI",
+    "file": "app/samples/sample_453_MI.npy"
+  }
+]

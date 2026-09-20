@@ -13,12 +13,25 @@ ENV/
 model/*.pkl
 *.h5
 !model/best_efficientnet.h5
-!**/best_efficientnet.h5
+!model/best_efficientnet_leakfree.h5
+!model/waveform_1d_cnn.h5
 *.npy
 
 ptbxl_database.csv
 data/raw_*
 data/processed/
+data/ptbxl_100hz/
+data/test_rec/
+records100/
+
+# Tool folders and files
+.agents/
+.gemini/
+GEMINI.md
+AGENTS.md
+brain/
+tracked_files.txt
+scratch/
 
 static/plot.png
 static/uploads/

@@ -1,140 +1,118 @@
-# CardioScan: AI-Powered ECG Screening Demo
+# CardioScan: ECG Classification on PTB-XL (Image vs Waveform Models)
 
-> **⚠️ Medical & Research Disclaimer**  
-> **Educational and research purposes only. Not a certified medical device.**  
-> This project is designed purely as an experimental screening demonstration and must not be used for medical diagnosis or clinical decision-making.
+[![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
+[![TensorFlow 2.21](https://img.shields.io/badge/tensorflow-2.21-orange.svg)](https://www.tensorflow.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
----
+CardioScan is an educational research project evaluating deep learning approaches for 12-lead Electrocardiogram (ECG) classification on the publicly available **PTB-XL dataset**. 
 
-## 📌 Project Overview
-
-**CardioScan** is a deep learning research demonstration for multi-class ECG classification (`NORM`, `MI`, `OTHER_ABNORMAL`) using an **EfficientNetB0** backbone combined with OpenCV rule-based signal processing.
-
-The repository consolidates legacy experiments, establishes a **leak-free patient-grouped split using PTB-XL strat_fold**, and provides a web-based Flask demonstration interface.
+> [!IMPORTANT]
+> **Clinical Disclaimer**: Educational and research purposes only. Not a certified medical device.
 
 ---
 
-## 🏗️ System Architecture & Pipeline
+## 📌 Overview & Key Findings
+
+This project systematically diagnoses and compares two primary modeling approaches for ECG classification under a strict **patient-wise leak-free split**:
+
+1. **2D Image Model (EfficientNetB0)**: Trained on visual plots of scanned 12-lead ECGs. Under a leak-free patient split, the 2D image model collapsed to near-random prediction (**Macro F1: 0.3188**, **Macro AUROC: 0.5103**), failing to beat the random baseline (**Macro F1: 0.3359**). Visual grid features in 2D plots do not generalize across distinct patient recordings. Note: The legacy `model/best_efficientnet.h5` was trained with a leaky split and is not trusted.
+2. **1D Waveform Model (1D CNN)**: Trained on raw 100 Hz 12-lead digital ECG signals loaded via `wfdb`. The 1D CNN achieved strong, statistically significant performance (**Macro F1: 0.6272**, **Macro AUROC: 0.8532**), with a bootstrap 95% confidence interval strictly above all baselines.
+
+---
+
+## 📊 Summary Results Table
+
+Evaluated on the leak-free test split (**PTB-XL Stratified Fold 10**):
+
+| Model / Strategy | Test Samples (N) | Test Accuracy (95% CI) | Macro F1 (95% CI) | Macro AUROC (95% CI) | Status |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **Majority Baseline ("Always Predict NORM")** | 239 | 0.5565 [0.4937, 0.6192] | 0.2384 [0.2204, 0.2547] | 0.5000 [0.5000, 0.5000] | Baseline |
+| **Random Class Frequency Baseline** | 239 | 0.4100 [0.3515, 0.4728] | 0.3359 [0.2801, 0.3900] | 0.5000 [0.4350, 0.5650] | Baseline |
+| **2D Image Model (EfficientNetB0)** | 239 | 0.3598 [0.3013, 0.4226] | 0.3188 [0.2578, 0.3770] | 0.5103 [0.4412, 0.5794] | Failed (Does not beat baseline) |
+| **1D Waveform Model (1D CNN)** | 156 | **0.7051** [0.6282, 0.7756] | **0.6272** [0.5379, 0.7060] | **0.8532** [0.8028, 0.9002] | **PASSED (Beats baseline; CI no overlap)** |
+
+---
+
+## 🏗️ Architecture & Pipeline Diagram
 
 ```mermaid
-flowchart TD
-    A[Upload 12-Lead ECG Image] --> B[Flask Web Backend app/app.py]
-    B --> C[EfficientNetB0 Classifier model/best_efficientnet_leakfree.h5]
-    B --> D[OpenCV Signal Extraction app/ecg_analysis.py]
-    C --> E[Class Probabilities: NORM / MI / OTHER_ABNORMAL]
-    D --> F[R-Peak Detection & Heart Rate Estimation]
-    E --> G[Interactive Demo Web Interface]
-    F --> G
+graph TD
+    A[PTB-XL Raw Records 100Hz & Metadata] --> B[Ground Truth Relabeling: MI > NORM > OTHER_ABNORMAL]
+    B --> C[Patient-wise Stratified Split: strat_fold 1-10]
+    C -->|Folds 1-8| D[Train Fold]
+    C -->|Fold 9| E[Validation Fold]
+    C -->|Fold 10| F[Test Fold]
+    D --> G[2D Image EfficientNet Pipeline]
+    D --> H[1D Waveform CNN Pipeline]
+    F -->|Single Evaluation| I[Image Model: Macro F1 0.3188 - Failed]
+    F -->|Single Evaluation| J[Waveform Model: Macro F1 0.6272, AUROC 0.8532 - Passed]
+    J --> K[Flask Interactive Web Demo app/app.py]
 ```
 
 ---
 
-## 🔬 Dataset & Ground Truth Re-Labeling
+## 🛠️ Tech Stack
 
-### Image Source & Verification
-* **Image Dataset Origin**: Source not verified. The repository contains 1,905 unique labeled ECG grid plot images (`3x1`, `3x4`, `6x2`, `12x1` layouts).
-* **Ground Truth Source**: Diagnostic superclasses derived directly from the **PTB-XL ECG Dataset** (`ptbxl_database.csv` + `scp_statements.csv`).
-
-### Priority Rule for Ground Truth Labeling
-Original folder labels agreed with PTB-XL diagnostic superclasses only **77.27%** of the time. To eliminate label noise, all records were re-labeled using PTB-XL `scp_codes` with a likelihood threshold ≥ 50.0 following this hierarchy:
-1. **`MI`**: Present if any Myocardial Infarction diagnostic code (`MI`) is active with likelihood ≥ 50%.
-2. **`NORM`**: Assigned if `NORM` is the *only* diagnostic superclass present.
-3. **`OTHER_ABNORMAL`**: Assigned if any other diagnostic superclass (`STTC`, `CD`, `HYP`, etc.) is present.
-4. **Excluded**: 82 records lacking usable diagnostic codes with likelihood ≥ 50%.
-
-### Clean Dataset & Leak-Free Split Breakdown
-Grouping by PTB-XL `strat_fold` (Folds 1–8: Train, Fold 9: Validation, Fold 10: Test) ensures **zero patient overlap** across splits:
-
-| Split | NORM | OTHER_ABNORMAL | MI | Total Unique Images |
-| :--- | :---: | :---: | :---: | :---: |
-| **Train** (`strat_fold` 1–8) | 767 | 477 | 195 | **1,439** |
-| **Validation** (`strat_fold` 9) | 111 | 70 | 46 | **227** |
-| **Test** (`strat_fold` 10) | 133 | 72 | 34 | **239** |
-| **Total** | **1,011** | **619** | **275** | **1,905** |
+- **Core & Logic**: Python 3.11, NumPy, Pandas, Scikit-learn
+- **Deep Learning**: TensorFlow 2.21, Keras
+- **ECG Signal Processing**: WFDB (`wfdb`), Matplotlib
+- **Web Application**: Flask, HTML5, CSS3, JavaScript (Vanilla)
 
 ---
 
-## 📊 Evaluation Results
+## 📂 Repository Structure
 
-> [!WARNING]
-> **Legacy Model Untrusted**: The historical model checkpoint `model/best_efficientnet.h5` was trained using random image-level splitting that caused severe data leakage across train and validation folds. Its high historical accuracy numbers were inflated by patient overlap.
-
-### Leak-Free Test Fold Performance (`strat_fold` 10, N=239)
-
-Evaluated using `model/best_efficientnet_leakfree.h5` trained locally with balanced class weighting:
-
-* **Accuracy**: **`55.65%`** (95% Bootstrap CI: `[49.37%, 62.34%]`, N=239)
-* **Macro F1-Score**: **`0.2384`** (95% Bootstrap CI: `[0.2204, 0.2560]`, N=239)
-* **Macro AUROC**: **`0.5060`** (95% Bootstrap CI: `[0.4401, 0.5638]`, N=239)
-
-#### Per-Class Metrics Table
-
-| Class | Image Count (N) | Precision | Recall | F1-Score |
-| :--- | :---: | :---: | :---: | :---: |
-| **NORM** | 133 | 0.5565 | 1.0000 | 0.7151 |
-| **OTHER_ABNORMAL** | 72 | 0.0000 | 0.0000 | 0.0000 |
-| **MI** | 34 | 0.0000 | 0.0000 | 0.0000 |
-
-#### Test Set Confusion Matrix
-```text
-                  Predicted NORM   Predicted OTHER_ABNORMAL   Predicted MI
-Actual NORM (133)            133                          0              0
-Actual OTHER_ABNORMAL (72)    72                          0              0
-Actual MI (34)                34                          0              0
 ```
-
-* **Honest Technical Finding**: Under leak-free patient-grouped evaluation, fine-tuning a 2D CNN on static 2D image grid plots without sequence waveform time-series representations resulted in majority class collapse (`NORM`).
-
----
-
-## 🛠️ Technology Stack
-
-* **Language**: Python 3.11
-* **Deep Learning Framework**: TensorFlow 2.12+ / Keras (EfficientNetB0)
-* **Computer Vision**: OpenCV (`opencv-python`), Pillow
-* **Data Processing**: Pandas, NumPy, Scikit-Learn
-* **Web Framework**: Flask 2.3+
-* **Containerization**: Docker (Dockerfile included, status: untested)
-
----
-
-## 📁 Repository Directory Structure
-
-```text
 CardioScan/
-├── AGENTS.md                   # Agent execution guidelines & rules
-├── README.md                   # Project documentation
-├── Dockerfile                  # Container build specification (untested)
-├── requirements.txt            # Real Python dependencies
-├── app/                        # Flask Web Application
-│   ├── app.py                  # Web application entry point
-│   ├── ecg_analysis.py         # Model inference & rule-based signal processing
-│   ├── model/class_names.json  # Class label definitions
-│   └── static/                 # Static web assets & generated plots
-├── model/                      # Model Checkpoints
-│   ├── best_efficientnet.h5    # Historical model (untrusted leaky baseline)
-│   └── best_efficientnet_leakfree.h5  # Retrained leak-free model
-├── splits/                     # Leak-free Dataset Splits
-│   └── split.csv               # PTB-XL strat_fold dataset mapping
-├── src/                        # Model Training & Evaluation Scripts
-│   ├── train_efficientnet.py   # Leak-free EfficientNet training script
-│   ├── evaluate_model.py      # Model evaluation script
-│   ├── quick_test.py          # Quick inference test script
-│   └── verify_dataset.py      # Image integrity checker
-├── tests/                      # Automated Unit Tests
-│   └── test_leakage.py        # Leakage verification unit test suite
-├── legacy/                     # Legacy Experiments (Archived Leaky Scripts)
-│   ├── README.md               # Warning & explanation of legacy scripts
-│   ├── train_model.py
-│   ├── train_simple.py
-│   ├── convert_dataset.py
-│   ├── fix_dataset.py
-│   ├── fix_val_and_train.py
-│   └── prepare_and_train.py
-└── results/                    # Empirical Logs & Metrics
-    ├── train_log.txt           # Local training execution log
-    └── metrics.json            # JSON test metrics & bootstrap CIs
+├── app/
+│   ├── app.py                  # Flask web application demo (sample picker & waveform 1D model)
+│   └── samples/                # Included PTB-XL sample records (.npy signals & metadata)
+├── docs/                       # Screenshots and user flow documentation
+├── model/
+│   ├── best_efficientnet_leakfree.h5  # Evaluated 2D image model (leak-free split)
+│   └── waveform_1d_cnn.h5             # Trained 1D waveform CNN model
+├── results/
+│   ├── diagnosis.md            # Part 1 image model collapse diagnostic report
+│   ├── metrics_summary.md      # Consolidated model evaluation & baseline comparison
+│   ├── metrics_waveform.json   # 1D CNN evaluation JSON output
+│   └── confusion_matrix_part1.png
+├── src/
+│   ├── download_ptbxl_100hz.py # Multi-threaded PhysioNet PTB-XL downloader
+│   ├── run_part1_diagnosis.py  # Part 1 2D image model diagnostic runner
+│   ├── train_waveform_all.py   # Part 2 1D waveform CNN training & evaluation script
+│   ├── train_efficientnet.py   # Image model training script
+│   └── evaluate_model.py       # Evaluation script
+├── tests/
+│   └── test_leak_free_split.py # Pytest unit tests for patient & image split integrity
+├── splits/
+│   └── split_leakfree.csv      # Patient-wise strat_fold split index
+├── ptbxl_database.csv          # PTB-XL database metadata
+├── scp_statements.csv          # SCP statement definitions
+├── Dockerfile                  # Container definition
+├── requirements.txt            # Python dependencies
+└── README.md                   # Project documentation
 ```
+
+---
+
+## 🧪 Data & Leak-Free Split Methodology
+
+### Ground Truth Relabeling
+Labels are derived from official SCP statements (`scp_statements.csv`) with `likelihood >= 50.0`:
+1. **MI**: If Myocardial Infarction (`MI`) superclass is present.
+2. **NORM**: If Normal (`NORM`) is the sole diagnostic superclass.
+3. **OTHER_ABNORMAL**: If any other superclass (`STTC`, `CD`, `HYP`) is present.
+4. **Excluded**: Records without any usable diagnostic code with likelihood ≥ 50 are excluded (1,426 records).
+
+> **Label Agreement**: Comparing legacy folder labels with PTB-XL ground truth revealed a **77.2% agreement rate** (22.8% discrepancy resolved).
+
+### Patient-Wise Split
+The dataset uses official PTB-XL `strat_fold` assignments:
+- **Train**: Folds 1–8
+- **Validation**: Fold 9
+- **Test**: Fold 10
+
+Unit tests (`tests/test_leak_free_split.py`) enforce zero overlap of `patient_id` or `ecg_id` across train, validation, and test splits.
 
 ---
 
@@ -142,29 +120,39 @@ CardioScan/
 
 ### 1. Installation
 ```bash
-git clone https://github.com/SiddhiDeshmukh310/CardioScan.git
+git clone -b merge-ecg https://github.com/SiddhiDeshmukh310/CardioScan.git
 cd CardioScan
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 2. Run Unit Tests
+### 2. Run Split Integrity Tests
 ```bash
-python tests/test_leakage.py
+pytest tests/test_leak_free_split.py
 ```
 
-### 3. Launch Web Application
+### 3. Train & Evaluate 1D Waveform Model
+```bash
+python src/train_waveform_all.py
+```
+
+### 4. Launch Flask Web Application Demo
 ```bash
 python app/app.py
 ```
-Open your browser at `http://localhost:5000`.
+Navigate to `http://127.0.0.1:5000` in your web browser.
 
 ---
 
-## 📚 Dataset Credit & Citation
+## ⚠️ Limitations & Scope
 
-This project utilizes clinical metadata and diagnostic labels from the **PTB-XL ECG Dataset**:
+- **Image Model Limitations**: 2D scanned ECG plot images contain visual grid and formatting variations that fail to generalize under leak-free patient splits.
+- **Sample Scope**: The web demo features pre-packaged PTB-XL sample records for rapid demonstration without requiring local multi-gigabyte dataset downloads.
+- **Screening Demo**: CardioScan is designed as an educational screening proof-of-concept.
 
-* **PhysioNet Link**: [https://physionet.org/content/ptb-xl/1.0.3/](https://physionet.org/content/ptb-xl/1.0.3/)
-* **Citation**: Wagner, P., Strodthoff, N., Bousseljot, R. D., Kreiseler, D., Lunze, F. I., Samek, W., & Schaeffter, T. (2020). *PTB-XL, a large publicly available electrocardiography dataset*. Scientific Data, 7(1), 154.
+---
+
+## 📖 Citation & Credits
+
+- Dataset provided by **PhysioNet**:
+  > Wagner, P., Strodthoff, N., Bousseljot, R. D., Samek, W., & Schaeffter, T. (2020). *PTB-XL, a large publicly available electrocardiography dataset*. Scientific Data, 7(1), 154. 
+  > PhysioNet Archive: [https://physionet.org/content/ptb-xl/1.0.3/](https://physionet.org/content/ptb-xl/1.0.3/)
