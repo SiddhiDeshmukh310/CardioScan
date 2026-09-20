@@ -1,39 +1,28 @@
-# ================= Stage 1: Build React Frontend =================
-FROM node:20-alpine AS frontend-builder
-WORKDIR /app/frontend
-COPY frontend/package*.json ./
-RUN npm install
-COPY frontend/ ./
-RUN npm run build
-
-# ================= Stage 2: Production Python API =================
+# Production Dockerfile for CardioScan Flask Application (Untested)
 FROM python:3.11-slim
+
 WORKDIR /app
 
-# Install system dependencies for OpenCV (Mesa GL and GLib)
+# Install system dependencies for OpenCV
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1-mesa-glx \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install python dependencies
+# Install Python dependencies
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy source code and artifacts
+# Copy source code, model, splits, and application assets
+COPY app/ ./app/
 COPY src/ ./src/
-COPY api/ ./api/
-COPY data/ ./data/
-COPY models/ ./models/
-COPY reports/ ./reports/
-COPY ecg_analysis.py ./
+COPY model/ ./model/
+COPY splits/ ./splits/
 
-# Copy built frontend assets from Stage 1
-COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
+# Expose Flask default port
+EXPOSE 5000
 
-# Expose FastAPI production port
-EXPOSE 8000
-
-# Set Python Path and start unified FastAPI production server
 ENV PYTHONPATH=/app
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# Start Flask application server
+CMD [" python\, \app/app.py\]

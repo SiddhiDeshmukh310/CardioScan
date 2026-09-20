@@ -1,3 +1,5 @@
+# Legacy script. Uses a random image split that leaks data. Do not use for results.
+
 """
 train_simple.py  —  Fast ECG Classifier (No GPU needed)
 =========================================================
