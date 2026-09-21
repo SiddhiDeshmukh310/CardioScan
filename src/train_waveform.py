@@ -52,9 +52,9 @@ df_db['label'] = df_db['scp_codes'].apply(assign_label)
 excluded_count = df_db['label'].isna().sum()
 clean_df = df_db[df_db['label'].notna()].copy()
 
-print(f"Total PTB-XL records: {len(df_db)}")
-print(f"Excluded records (no usable code): {excluded_count}")
-print(f"Usable labeled records: {len(clean_df)}")
+print('Total PTB-XL records:', len(df_db))
+print('Excluded records (no usable code):', excluded_count)
+print('Usable labeled records:', len(clean_df))
 
 labels = ['MI', 'NORM', 'OTHER_ABNORMAL']
 label_to_id = {l: i for i, l in enumerate(labels)}
@@ -62,12 +62,14 @@ label_to_id = {l: i for i, l in enumerate(labels)}
 X_list, y_list, folds_list, ids_list = [], [], [], []
 sample_records = []
 
-print("Loading WFDB 100Hz signals...")
+print('Loading WFDB 100Hz signals...')
 start_time = time.time()
 
 for ecg_id, row in clean_df.iterrows():
-    rel = str(row['filename_lr']).replace(chr(92), '/')
-    fp = os.path.normpath(os.path.join('data/ptbxl_100hz', rel))
+    rel = str(row['filename_lr']).replace('\\', '/')
+    fp1 = os.path.normpath(os.path.join('data/ptbxl_100hz', rel))
+    fp2 = os.path.normpath(rel)
+    fp = fp1 if os.path.exists(fp1 + '.dat') else fp2
     if not (os.path.exists(fp + '.hea') and os.path.exists(fp + '.dat')):
         continue
             
@@ -89,7 +91,7 @@ for ecg_id, row in clean_df.iterrows():
             lbl = row['label']
             lbl_count = sum(1 for s in sample_records if s['label'] == lbl)
             if lbl_count < 4:
-                sample_file = f"app/samples/sample_{ecg_id}_{lbl}.npy"
+                sample_file = f'app/samples/sample_{ecg_id}_{lbl}.npy'
                 np.save(sample_file, signal)
                 sample_records.append({
                     'id': int(ecg_id),
@@ -106,7 +108,7 @@ X = np.array(X_list, dtype=np.float32)
 y = np.array(y_list, dtype=np.int32)
 folds = np.array(folds_list, dtype=np.int32)
 
-print(f"Loaded {len(X)} records in {time.time() - start_time:.1f}s. Shape: {X.shape}")
+print('Loaded', len(X), 'records in', round(time.time() - start_time, 1), 's. Shape:', X.shape)
 
 train_mask = np.isin(folds, range(1, 9))
 val_mask = (folds == 9)
@@ -114,7 +116,7 @@ val_mask = (folds == 9)
 X_train, y_train = X[train_mask], y[train_mask]
 X_val, y_val = X[val_mask], y[val_mask]
 
-print(f"Split counts -> Train (1-8): {len(X_train)}, Val (9): {len(X_val)}")
+print('Split counts -> Train (folds 1-8):', len(X_train), 'Val (fold 9):', len(X_val))
 
 cw_vec = compute_class_weight(class_weight='balanced', classes=np.array([0, 1, 2]), y=y_train)
 class_weights = dict(zip([0, 1, 2], cw_vec))
@@ -122,7 +124,7 @@ print('Class weights:', class_weights)
 
 with open('app/samples/samples_index.json', 'w') as f:
     json.dump(sample_records, f, indent=2)
-print(f"Saved {len(sample_records)} sample records to app/samples/samples_index.json")
+print('Saved', len(sample_records), 'sample records to app/samples/samples_index.json')
 
 def build_1d_cnn(input_shape=(1000, 12), num_classes=3):
     inputs = layers.Input(shape=input_shape)
@@ -158,16 +160,16 @@ cb = [
     callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3, verbose=1)
 ]
 
-print("Training Waveform 1D CNN Model...")
+print('Training Waveform 1D CNN Model on full dataset...')
 history = model_1d.fit(
     X_train, y_train,
     validation_data=(X_val, y_val),
     epochs=25,
-    batch_size=32,
+    batch_size=64,
     class_weight=class_weights,
     callbacks=cb,
     verbose=1
 )
 
 model_1d.save('model/waveform_1d_cnn.h5')
-print("Saved model/waveform_1d_cnn.h5")
+print('Saved model/waveform_1d_cnn.h5')

@@ -1,0 +1,252 @@
+import os
+import json
+
+os.makedirs('notebooks', exist_ok=True)
+
+nb_cells = [
+    {
+        'cell_type': 'markdown',
+        'metadata': {},
+        'source': [
+            '# PTB-XL Waveform 1D CNN Training & Leak-Free Evaluation\n',
+            '\n',
+            'This notebook trains a 1D CNN on 12-lead 100Hz raw ECG signals from PTB-XL using the official patient-stratified split (`strat_fold`).\n',
+            '\n',
+            '### Instructions for Kaggle GPU:\n',
+            '1. Click **Session Options** -> **Accelerator** -> **GPU T4 x2** (or GPU P100).\n',
+            '2. Click **Run All**.\n',
+            '3. The notebook will download PTB-XL, train the 1D CNN model, evaluate on fold 10, and compute 95% bootstrap confidence intervals.\n'
+        ]
+    },
+    {
+        'cell_type': 'code',
+        'execution_count': None,
+        'metadata': {},
+        'outputs': [],
+        'source': [
+            '!pip install -q wfdb pandas numpy scikit-learn tensorflow matplotlib\n'
+        ]
+    },
+    {
+        'cell_type': 'code',
+        'execution_count': None,
+        'metadata': {},
+        'outputs': [],
+        'source': [
+            'import os, sys, json, ast\n',
+            'import pandas as pd\n',
+            'import numpy as np\n',
+            'import tensorflow as tf\n',
+            'from tensorflow.keras import layers, models, optimizers\n',
+            'from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, confusion_matrix, classification_report\n',
+            'from sklearn.utils.class_weight import compute_class_weight\n',
+            'import wfdb\n',
+            '\n',
+            'print("TF Version:", tf.__version__)\n',
+            'print("GPU Available:", bool(tf.config.list_physical_devices("GPU")))\n'
+        ]
+    },
+    {
+        'cell_type': 'code',
+        'execution_count': None,
+        'metadata': {},
+        'outputs': [],
+        'source': [
+            '# Load PTB-XL database metadata and SCP statements\n',
+            'db_url = "https://physionet.org/content/ptb-xl/1.0.3/ptbxl_database.csv"\n',
+            'scp_url = "https://physionet.org/content/ptb-xl/1.0.3/scp_statements.csv"\n',
+            '\n',
+            'df_db = pd.read_csv(db_url, index_col="ecg_id")\n',
+            'df_scp = pd.read_csv(scp_url, index_col=0)\n',
+            '\n',
+            'df_db["scp_codes"] = df_db["scp_codes"].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) else x)\n',
+            '\n',
+            'def assign_label(scp_dict):\n',
+            '    if not isinstance(scp_dict, dict) or len(scp_dict) == 0:\n',
+            '        return None\n',
+            '    valid_classes = set()\n',
+            '    for code, likelihood in scp_dict.items():\n',
+            '        if likelihood >= 50.0 and code in df_scp.index:\n',
+            '            sc = df_scp.loc[code, "diagnostic_class"]\n',
+            '            if pd.notna(sc) and sc != "":\n',
+            '                valid_classes.add(str(sc))\n',
+            '    if not valid_classes:\n',
+            '        return None\n',
+            '    if "MI" in valid_classes:\n',
+            '        return "MI"\n',
+            '    if valid_classes == {"NORM"}:\n',
+            '        return "NORM"\n',
+            '    return "OTHER_ABNORMAL"\n',
+            '\n',
+            'df_db["label"] = df_db["scp_codes"].apply(assign_label)\n',
+            'valid_mask = df_db["label"].notna()\n',
+            'print(f"Total records: {len(df_db)}, Usable labeled records: {valid_mask.sum()}")\n',
+            'clean_df = df_db[valid_mask].copy()\n'
+        ]
+    },
+    {
+        'cell_type': 'code',
+        'execution_count': None,
+        'metadata': {},
+        'outputs': [],
+        'source': [
+            '# Download PTB-XL 100Hz signals via WFDB\n',
+            'os.makedirs("ptbxl_data", exist_ok=True)\n',
+            'print("Downloading 100Hz records...")\n',
+            'wfdb.dl_database("ptb-xl", dl_dir="ptbxl_data", records="records100")\n'
+        ]
+    },
+    {
+        'cell_type': 'code',
+        'execution_count': None,
+        'metadata': {},
+        'outputs': [],
+        'source': [
+            '# Load signals into numpy arrays\n',
+            'labels = ["MI", "NORM", "OTHER_ABNORMAL"]\n',
+            'label_to_id = {l: i for i, l in enumerate(labels)}\n',
+            '\n',
+            'X_list, y_list, folds_list = [], [], []\n',
+            'for ecg_id, row in clean_df.iterrows():\n',
+            '    rec_path = os.path.join("ptbxl_data", row["filename_lr"])\n',
+            '    try:\n',
+            '        record = wfdb.rdrecord(rec_path)\n',
+            '        signal = record.p_signal\n',
+            '        if signal.shape == (1000, 12):\n',
+            '            X_list.append(signal)\n',
+            '            y_list.append(label_to_id[row["label"]])\n',
+            '            folds_list.append(row["strat_fold"])\n',
+            '    except Exception as e:\n',
+            '        pass\n',
+            '\n',
+            'X = np.array(X_list, dtype=np.float32)\n',
+            'y = np.array(y_list, dtype=np.int32)\n',
+            'folds = np.array(folds_list, dtype=np.int32)\n',
+            'print(f"Loaded X shape: {X.shape}, y shape: {y.shape}")\n'
+        ]
+    },
+    {
+        'cell_type': 'code',
+        'execution_count': None,
+        'metadata': {},
+        'outputs': [],
+        'source': [
+            '# Official Split (1-8 Train, 9 Val, 10 Test)\n',
+            'train_mask = np.isin(folds, range(1, 9))\n',
+            'val_mask = (folds == 9)\n',
+            'test_mask = (folds == 10)\n',
+            '\n',
+            'X_train, y_train = X[train_mask], y[train_mask]\n',
+            'X_val, y_val = X[val_mask], y[val_mask]\n',
+            'X_test, y_test = X[test_mask], y[test_mask]\n',
+            '\n',
+            'cw_vec = compute_class_weight(class_weight="balanced", classes=np.array([0, 1, 2]), y=y_train)\n',
+            'class_weights = dict(zip([0, 1, 2], cw_vec))\n',
+            'print("Class weights:", class_weights)\n'
+        ]
+    },
+    {
+        'cell_type': 'code',
+        'execution_count': None,
+        'metadata': {},
+        'outputs': [],
+        'source': [
+            '# Build 1D CNN Architecture\n',
+            'def build_1d_cnn(input_shape=(1000, 12), num_classes=3):\n',
+            '    model = models.Sequential([\n',
+            '        layers.Conv1D(32, kernel_size=7, padding="same", activation="relu", input_shape=input_shape),\n',
+            '        layers.BatchNormalization(),\n',
+            '        layers.MaxPooling1D(2),\n',
+            '        layers.Conv1D(64, kernel_size=5, padding="same", activation="relu"),\n',
+            '        layers.BatchNormalization(),\n',
+            '        layers.MaxPooling1D(2),\n',
+            '        layers.Conv1D(128, kernel_size=3, padding="same", activation="relu"),\n',
+            '        layers.BatchNormalization(),\n',
+            '        layers.GlobalAveragePooling1D(),\n',
+            '        layers.Dense(64, activation="relu"),\n',
+            '        layers.Dropout(0.3),\n',
+            '        layers.Dense(num_classes, activation="softmax")\n',
+            '    ])\n',
+            '    model.compile(\n',
+            '        optimizer=optimizers.Adam(learning_rate=1e-3),\n',
+            '        loss="sparse_categorical_crossentropy",\n',
+            '        metrics=["accuracy"]\n',
+            '    )\n',
+            '    return model\n',
+            '\n',
+            'model = build_1d_cnn()\n',
+            'history = model.fit(\n',
+            '    X_train, y_train,\n',
+            '    validation_data=(X_val, y_val),\n',
+            '    epochs=20,\n',
+            '    batch_size=64,\n',
+            '    class_weight=class_weights,\n',
+            '    verbose=1\n',
+            ')\n'
+        ]
+    },
+    {
+        'cell_type': 'code',
+        'execution_count': None,
+        'metadata': {},
+        'outputs': [],
+        'source': [
+            '# Evaluate ONCE on Test Fold (Fold 10)\n',
+            'test_preds_prob = model.predict(X_test)\n',
+            'test_preds = np.argmax(test_preds_prob, axis=1)\n',
+            '\n',
+            'test_acc = accuracy_score(y_test, test_preds)\n',
+            'test_macro_f1 = f1_score(y_test, test_preds, average="macro")\n',
+            'y_test_cat = tf.keras.utils.to_categorical(y_test, 3)\n',
+            'test_auroc = roc_auc_score(y_test_cat, test_preds_prob, multi_class="ovr", average="macro")\n',
+            '\n',
+            'print(f"Test Accuracy: {test_acc:.4f}")\n',
+            'print(f"Test Macro F1: {test_macro_f1:.4f}")\n',
+            'print(f"Test Macro AUROC: {test_auroc:.4f}")\n',
+            'print("\\nConfusion Matrix:")\n',
+            'print(confusion_matrix(y_test, test_preds))\n',
+            'print("\\nClassification Report:")\n',
+            'print(classification_report(y_test, test_preds, target_names=labels))\n',
+            '\n',
+            '# Bootstrap 95% CIs\n',
+            'np.random.seed(42)\n',
+            'n_bootstraps = 1000\n',
+            'boot_f1s, boot_accs, boot_aurocs = [], [], []\n',
+            'n_samples = len(y_test)\n',
+            'for _ in range(n_bootstraps):\n',
+            '    indices = np.random.choice(n_samples, size=n_samples, replace=True)\n',
+            '    if len(np.unique(y_test[indices])) < 3:\n',
+            '        continue\n',
+            '    boot_accs.append(accuracy_score(y_test[indices], test_preds[indices]))\n',
+            '    boot_f1s.append(f1_score(y_test[indices], test_preds[indices], average="macro"))\n',
+            '    try:\n',
+            '        auroc = roc_auc_score(y_test_cat[indices], test_preds_prob[indices], multi_class="ovr", average="macro")\n',
+            '        boot_aurocs.append(auroc)\n',
+            '    except:\n',
+            '        pass\n',
+            '\n',
+            'f1_ci = np.percentile(boot_f1s, [2.5, 97.5])\n',
+            'acc_ci = np.percentile(boot_accs, [2.5, 97.5])\n',
+            'auroc_ci = np.percentile(boot_aurocs, [2.5, 97.5])\n',
+            '\n',
+            'print(f"Macro F1 95% CI: [{f1_ci[0]:.4f}, {f1_ci[1]:.4f}]")\n',
+            'print(f"Accuracy 95% CI: [{acc_ci[0]:.4f}, {acc_ci[1]:.4f}]")\n',
+            'print(f"Macro AUROC 95% CI: [{auroc_ci[0]:.4f}, {auroc_ci[1]:.4f}]")\n'
+        ]
+    }
+]
+
+notebook_json = {
+    'cells': nb_cells,
+    'metadata': {
+        'language_info': {'name': 'python'}
+    },
+    'nbformat': 4,
+    'nbformat_minor': 2
+}
+
+nb_path = 'notebooks/kaggle_train_waveform.ipynb'
+with open(nb_path, 'w', encoding='utf-8') as f:
+    json.dump(notebook_json, f, indent=2)
+
+print(f"Successfully generated {nb_path}")
