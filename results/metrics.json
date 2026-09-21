@@ -1,0 +1,55 @@
+{
+  "total_test_samples": 239,
+  "accuracy": 0.5565,
+  "accuracy_ci95": [
+    0.4937,
+    0.6234
+  ],
+  "macro_f1": 0.2384,
+  "macro_f1_ci95": [
+    0.2204,
+    0.256
+  ],
+  "macro_auroc": 0.506,
+  "macro_auroc_ci95": [
+    0.4401,
+    0.5638
+  ],
+  "confusion_matrix": [
+    [
+      0,
+      34,
+      0
+    ],
+    [
+      0,
+      133,
+      0
+    ],
+    [
+      0,
+      72,
+      0
+    ]
+  ],
+  "per_class": {
+    "MI": {
+      "support": 34,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1_score": 0.0
+    },
+    "NORM": {
+      "support": 133,
+      "precision": 0.5565,
+      "recall": 1.0,
+      "f1_score": 0.7151
+    },
+    "OTHER_ABNORMAL": {
+      "support": 72,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1_score": 0.0
+    }
+  }
+}

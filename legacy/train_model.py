@@ -1,3 +1,5 @@
+# Legacy script. Uses a random image split that leaks data. Do not use for results.
+
 """
 train_model.py  –  ECG Condition Classifier
 ============================================

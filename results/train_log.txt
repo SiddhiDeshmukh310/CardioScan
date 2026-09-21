@@ -1,0 +1,12 @@
+=== STARTING LEAK-FREE EFFICIENTNET TRAINING ===
+Class weights: {0: np.float64(2.45982905982906), 1: np.float64(0.625380269448066), 2: np.float64(1.0055904961565338)}
+Training finished in 912.10 seconds
+
+=== TEST FOLD EVALUATION RESULTS ===
+Accuracy: 0.5565
+Macro F1: 0.2384
+Macro AUROC: 0.5060
+Confusion Matrix:
+[[  0  34   0]
+ [  0 133   0]
+ [  0  72   0]]

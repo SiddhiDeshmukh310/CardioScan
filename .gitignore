@@ -3,17 +3,27 @@ __pycache__/
 *.pyo
 *.pyd
 .Python
+
 env/
 venv/
 .venv/
 ENV/
 
-static/plot.png
-static/uploads/
 *.pkl
 model/*.pkl
 *.h5
+!model/waveform_1d_cnn.h5
+*.npy
 
+ptbxl_database.csv
+data/raw_*
+data/processed/
+data/ptbxl_100hz/
+data/test_rec/
+records100/
+
+static/plot.png
+static/uploads/
 .DS_Store
 .vscode/
 .idea/

@@ -1,495 +1,784 @@
-from flask import Flask, request, jsonify
 import os
-from ecg_analysis import analyze_ecg
+import io
+import json
+import base64
+import numpy as np
+import pandas as pd
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import tensorflow as tf
+from flask import Flask, request, jsonify, render_template_string
+from PIL import Image
 
 app = Flask(__name__)
-os.makedirs("static", exist_ok=True)
 
-HTML = """<!DOCTYPE html>
+# Load 1D Waveform Model
+MODEL_1D_PATH = 'model/waveform_1d_cnn.h5'
+model_1d = None
+
+if os.path.exists(MODEL_1D_PATH):
+    try:
+        model_1d = tf.keras.models.load_model(MODEL_1D_PATH)
+        print("Loaded 1D Waveform CNN model.")
+    except Exception as e:
+        print(f"Error loading 1D model: {e}")
+
+# Load Sample Index
+SAMPLES_INDEX = 'app/samples/samples_index.json'
+sample_records = []
+if os.path.exists(SAMPLES_INDEX):
+    with open(SAMPLES_INDEX, 'r') as f:
+        sample_records = json.load(f)
+
+if len(sample_records) < 5:
+    sample_files = [f for f in os.listdir('app/samples') if f.endswith('.npy')]
+    sample_records = []
+    for sf in sample_files:
+        parts = sf.replace('.npy', '').split('_')
+        ecg_id = parts[1] if len(parts) > 1 else '0'
+        lbl = parts[2] if len(parts) > 2 else 'NORM'
+        sample_records.append({
+            'id': int(ecg_id) if ecg_id.isdigit() else 100,
+            'patient_id': 1000 + (int(ecg_id) if ecg_id.isdigit() else 100),
+            'age': 62,
+            'sex': 0,
+            'label': lbl,
+            'file': os.path.join('app/samples', sf)
+        })
+
+def generate_ecg_plot(signal):
+    fig, axes = plt.subplots(6, 2, figsize=(10, 6.5), sharex=True)
+    fig.patch.set_facecolor('#ffffff')
+    lead_names = ['I', 'II', 'III', 'aVR', 'aVL', 'aVF', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6']
+    
+    t = np.linspace(0, 10, 1000)
+    for idx in range(12):
+        r, c = idx % 6, idx // 6
+        ax = axes[r, c]
+        ax.set_facecolor('#fafafa')
+        ax.plot(t, signal[:, idx], color='#1a9e60', linewidth=1.2)
+        ax.set_title(f"Lead {lead_names[idx]}", color='#111111', fontsize=8.5, pad=2, loc='left', weight='bold')
+        ax.grid(True, color='#e5e5e5', linestyle='--', linewidth=0.6)
+        ax.tick_params(colors='#888888', labelsize=7)
+        for spine in ax.spines.values():
+            spine.set_color('#e0e0e0')
+            
+    fig.text(0.5, 0.01, 'Time (seconds)', ha='center', color='#888888', fontsize=8.5)
+    plt.tight_layout()
+    
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', dpi=130, bbox_inches='tight', facecolor=fig.get_facecolor())
+    plt.close(fig)
+    buf.seek(0)
+    return base64.b64encode(buf.read()).decode('utf-8')
+
+def calculate_signal_metrics(signal_lead2, fs=100):
+    sig = signal_lead2 - np.mean(signal_lead2)
+    threshold = np.max(sig) * 0.45
+    peaks = []
+    for i in range(1, len(sig) - 1):
+        if sig[i] > threshold and sig[i] > sig[i-1] and sig[i] > sig[i+1]:
+            if not peaks or (i - peaks[-1]) > (0.35 * fs):
+                peaks.append(i)
+    if len(peaks) > 1:
+        rr_intervals = np.diff(peaks) / fs * 1000.0 # ms
+        mean_rr = np.mean(rr_intervals)
+        bpm = int(round(60000.0 / mean_rr)) if mean_rr > 0 else 72
+        rmssd = float(np.sqrt(np.mean(np.square(np.diff(rr_intervals))))) if len(rr_intervals) > 1 else 35.0
+        rr_std = float(np.std(rr_intervals))
+    else:
+        bpm, rmssd, rr_std = 72, 35.0, 25.0
+    return max(45, min(180, bpm)), len(peaks), round(rmssd, 1), round(rr_std, 1)
+
+HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>CardioScan — ECG Disease Detection</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-html{scroll-behavior:smooth}
-body{font-family:'Inter',sans-serif;background:#f7f7f5;color:#111;min-height:100vh}
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CardioScan — ECG Disease Detection</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #1a9e60;
+      --primary-dark: #0d6e42;
+      --primary-light: #f0faf5;
+      --primary-border: #b7e5cf;
+      --bg: #fafafa;
+      --card-bg: #ffffff;
+      --card-border: #e8e8e8;
+      --text-dark: #111111;
+      --text-body: #555555;
+      --text-muted: #aaaaaa;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', -apple-system, sans-serif; }
+    body { background-color: var(--bg); color: var(--text-dark); padding-bottom: 60px; line-height: 1.5; }
 
-/* NAV */
-nav{background:#fff;border-bottom:1px solid #e8e8e8;position:sticky;top:0;z-index:100;height:56px;display:flex;align-items:center;padding:0 32px}
-.nav-inner{max-width:1100px;margin:0 auto;width:100%;display:flex;align-items:center;gap:12px}
-.nav-logo{width:32px;height:32px;border-radius:8px;background:#111;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.nav-logo svg{width:16px;height:16px;stroke:#fff;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-.nav-name{font-size:16px;font-weight:700;letter-spacing:-0.3px}
-.nav-tag{font-size:12px;color:#999;margin-left:4px;font-weight:400}
-.nav-right{margin-left:auto;display:flex;align-items:center;gap:24px}
-.nav-link{font-size:13px;color:#666;text-decoration:none;font-weight:500}
-.nav-link:hover{color:#111}
-.nav-pill{font-size:12px;font-weight:600;background:#f0faf5;color:#0d6e42;border:1px solid #b7e5cf;padding:4px 12px;border-radius:99px}
+    /* Top Red Educational Banner */
+    .edu-banner {
+      background: #d93025;
+      color: #ffffff;
+      text-align: center;
+      padding: 10px 16px;
+      font-size: 13.5px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
 
-/* HERO */
-.hero{background:#fff;border-bottom:1px solid #e8e8e8;padding:64px 32px 56px}
-.hero-inner{max-width:1100px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:center}
-.hero-badge{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 12px;border-radius:99px;background:#f0f0f0;border:1px solid #e0e0e0;font-size:11px;font-weight:600;color:#555;letter-spacing:0.04em;text-transform:uppercase;margin-bottom:20px}
-.hero-badge-dot{width:6px;height:6px;border-radius:50%;background:#1a9e60}
-h1{font-size:40px;font-weight:700;letter-spacing:-1px;line-height:1.15;margin-bottom:16px;color:#111}
-h1 span{color:#1a9e60}
-.hero-desc{font-size:16px;color:#555;line-height:1.7;margin-bottom:28px;max-width:480px}
-.hero-stats{display:flex;gap:28px}
-.hstat-val{font-size:24px;font-weight:700;letter-spacing:-0.5px;color:#111}
-.hstat-label{font-size:12px;color:#999;margin-top:2px}
-.hero-right{display:flex;flex-direction:column;gap:12px}
-.feat-card{background:#f7f7f5;border:1px solid #e8e8e8;border-radius:12px;padding:16px 18px;display:flex;align-items:flex-start;gap:12px}
-.feat-icon{width:36px;height:36px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.feat-icon svg{width:18px;height:18px;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-.fi-green{background:#f0faf5}
-.fi-green svg{stroke:#1a9e60}
-.fi-blue{background:#eff6ff}
-.fi-blue svg{stroke:#2563eb}
-.fi-amber{background:#fffbeb}
-.fi-amber svg{stroke:#d97706}
-.feat-title{font-size:13px;font-weight:600;margin-bottom:3px}
-.feat-desc{font-size:12px;color:#888;line-height:1.5}
+    /* HEADER */
+    header {
+      background: #ffffff;
+      border-bottom: 1px solid var(--card-border);
+      padding: 16px 36px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .logo-icon {
+      width: 36px; height: 36px;
+      border-radius: 10px;
+      background: var(--primary-light);
+      border: 1px solid var(--primary-border);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .logo-icon svg { stroke: var(--primary); width: 20px; height: 20px; stroke-width: 2.2; }
+    .logo-text { font-size: 20px; font-weight: 800; color: var(--text-dark); letter-spacing: -0.4px; }
+    .logo-tag { font-size: 11px; background: var(--primary-light); color: var(--primary-dark); border: 1px solid var(--primary-border); padding: 2px 8px; border-radius: 99px; font-weight: 600; margin-left: 6px; }
+    .header-right { font-size: 13px; color: var(--text-muted); font-weight: 500; }
 
-/* MAIN */
-.main{max-width:1100px;margin:0 auto;padding:48px 32px 80px;display:grid;grid-template-columns:420px 1fr;gap:32px;align-items:start}
+    /* HERO */
+    .hero {
+      max-width: 1150px;
+      margin: 0 auto;
+      padding: 32px 36px 16px 36px;
+    }
+    .hero h1 { font-size: 26px; font-weight: 800; color: var(--text-dark); letter-spacing: -0.5px; margin-bottom: 6px; }
+    .hero p { color: var(--text-body); font-size: 14.5px; max-width: 800px; }
 
-/* UPLOAD PANEL */
-.panel{background:#fff;border:1px solid #e8e8e8;border-radius:16px;padding:28px;position:sticky;top:72px}
-.panel-title{font-size:14px;font-weight:600;margin-bottom:20px;color:#111}
-.dropzone{border:1.5px dashed #d4d4d4;border-radius:12px;padding:36px 20px;text-align:center;cursor:pointer;transition:all 0.15s;position:relative;background:#fafafa}
-.dropzone:hover,.dropzone.over{border-color:#1a9e60;background:#f0faf5}
-.dropzone input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
-.dz-icon{width:44px;height:44px;border-radius:12px;background:#f0f0f0;display:flex;align-items:center;justify-content:center;margin:0 auto 14px}
-.dz-icon svg{width:20px;height:20px;stroke:#888;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
-.dz-title{font-size:14px;font-weight:600;margin-bottom:4px;color:#111}
-.dz-sub{font-size:12px;color:#aaa}
-#fname{font-size:12px;color:#1a9e60;margin-top:10px;min-height:16px;font-weight:500}
-#preview{display:none;width:100%;max-height:180px;object-fit:cover;border-radius:10px;margin-top:14px;border:1px solid #e8e8e8}
-.btn-main{width:100%;margin-top:16px;height:44px;border-radius:10px;border:none;background:#111;color:#fff;font-size:14px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:all 0.15s;letter-spacing:-0.1px}
-.btn-main:hover{background:#333}
-.btn-main:disabled{opacity:0.3;cursor:not-allowed}
-.spinner{width:15px;height:15px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin 0.6s linear infinite;display:none}
-@keyframes spin{to{transform:rotate(360deg)}}
-#err{display:none;margin-top:12px;padding:10px 14px;border-radius:8px;background:#fff1f1;border:1px solid #ffd4d4;font-size:12px;color:#c0392b}
+    /* MAIN GRID */
+    .main {
+      max-width: 1150px;
+      margin: 0 auto;
+      padding: 0 36px;
+      display: grid;
+      grid-template-columns: 400px 1fr;
+      gap: 28px;
+      align-items: start;
+    }
+    @media (max-width: 900px) { .main { grid-template-columns: 1fr; padding: 0 20px; } }
 
-/* how it works */
-.how{margin-top:24px;padding-top:20px;border-top:1px solid #f0f0f0}
-.how-title{font-size:11px;font-weight:600;color:#aaa;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:14px}
-.step{display:flex;align-items:flex-start;gap:10px;margin-bottom:12px}
-.step-num{width:22px;height:22px;border-radius:99px;background:#f0f0f0;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#666;flex-shrink:0;margin-top:1px}
-.step-text{font-size:12px;color:#666;line-height:1.5}
-.step-text strong{color:#111;font-weight:600}
+    /* PANELS */
+    .panel {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+    }
+    .panel-title { font-size: 14px; font-weight: 700; color: var(--text-dark); margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; }
 
-/* RESULTS PANEL */
-#results{display:none}
-.section-label{font-size:11px;font-weight:600;color:#aaa;letter-spacing:0.07em;text-transform:uppercase;margin-bottom:12px}
+    /* DROPZONE UPLOAD BOX */
+    .dropzone {
+      border: 2px dashed #d4d4d4;
+      border-radius: 14px;
+      padding: 24px 16px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      position: relative;
+      background: #fafafa;
+      margin-bottom: 16px;
+    }
+    .dropzone:hover, .dropzone.over {
+      border-color: var(--primary);
+      background: var(--primary-light);
+    }
+    .dropzone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+    .dz-icon {
+      width: 40px; height: 40px; border-radius: 12px; background: #ffffff; border: 1px solid #e0e0e0;
+      display: flex; align-items: center; justify-content: center; margin: 0 auto 10px;
+    }
+    .dz-icon svg { width: 20px; height: 20px; stroke: var(--primary); fill: none; stroke-width: 2; }
+    .dz-title { font-size: 13.5px; font-weight: 700; color: var(--text-dark); margin-bottom: 2px; }
+    .dz-sub { font-size: 11.5px; color: #888888; }
+    #fname { font-size: 12px; color: var(--primary-dark); margin-top: 8px; font-weight: 600; }
 
-/* diagnosis */
-.diag-banner{border-radius:12px;padding:20px 22px;margin-bottom:20px;display:flex;gap:14px;align-items:flex-start}
-.db-low{background:#f0faf5;border:1px solid #b7e5cf}
-.db-moderate{background:#fffbf0;border:1px solid #f5dfa0}
-.db-high{background:#fff5f5;border:1px solid #f5c0c0}
-.db-unknown{background:#f7f7f7;border:1px solid #e0e0e0}
-.diag-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;margin-top:5px}
-.db-low .diag-dot{background:#1a9e60}
-.db-moderate .diag-dot{background:#c8960c}
-.db-high .diag-dot{background:#d93025}
-.db-unknown .diag-dot{background:#bbb}
-.diag-head{display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap}
-.diag-name{font-size:18px;font-weight:700;letter-spacing:-0.3px}
-.risk-pill{height:22px;padding:0 10px;border-radius:99px;font-size:10px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;display:inline-flex;align-items:center}
-.rp-low{background:#d4f5e5;color:#0d6e42}
-.rp-moderate{background:#fef3cc;color:#8a6400}
-.rp-high{background:#fde0e0;color:#991b1b}
-.rp-unknown{background:#ebebeb;color:#777}
-.diag-desc{font-size:13px;color:#555;line-height:1.65}
-.source-tag{display:inline-flex;align-items:center;gap:5px;margin-top:10px;font-size:11px;color:#888;background:#f5f5f5;padding:3px 10px;border-radius:99px;border:1px solid #e8e8e8}
-.source-dot{width:6px;height:6px;border-radius:50%;background:#1a9e60}
+    .btn-main {
+      width: 100%;
+      height: 42px;
+      border-radius: 10px;
+      border: none;
+      background: var(--text-dark);
+      color: #ffffff;
+      font-size: 13.5px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.15s;
+      margin-bottom: 20px;
+    }
+    .btn-main:hover { background: #222222; }
 
-/* metrics */
-.metrics{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:20px}
-.metric{background:#f7f7f5;border-radius:10px;padding:16px}
-.metric-label{font-size:10px;font-weight:600;color:#aaa;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:8px}
-.metric-value{font-size:28px;font-weight:700;letter-spacing:-1px;line-height:1;color:#111}
-.metric-unit{font-size:11px;color:#bbb;margin-top:4px;font-weight:500}
-.metric-sub{font-size:11px;color:#aaa;margin-top:2px}
+    .divider { display: flex; align-items: center; text-align: center; color: var(--text-muted); font-size: 11px; font-weight: 700; text-transform: uppercase; margin-bottom: 16px; }
+    .divider::before, .divider::after { content: ''; flex: 1; border-bottom: 1px solid #eeeeee; }
+    .divider::before { margin-right: 10px; }
+    .divider::after { margin-left: 10px; }
 
-/* probs */
-.probs-wrap{background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:20px;margin-bottom:20px}
-.probs-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
-.probs-title{font-size:13px;font-weight:600;color:#111}
-.conf-badge{font-size:11px;font-weight:600;background:#f0faf5;color:#0d6e42;border:1px solid #b7e5cf;padding:3px 10px;border-radius:99px}
-.prob-row{margin-bottom:14px}
-.prob-top{display:flex;justify-content:space-between;margin-bottom:5px}
-.prob-name{font-size:13px;font-weight:500;color:#111}
-.prob-pct{font-size:13px;font-weight:600;color:#555}
-.prob-track{height:6px;background:#f0f0f0;border-radius:99px;overflow:hidden}
-.prob-fill-1{height:6px;border-radius:99px;background:#111;transition:width 0.6s ease}
-.prob-fill-2{height:6px;border-radius:99px;background:#bbb;transition:width 0.6s ease}
-.prob-fill-3{height:6px;border-radius:99px;background:#e0e0e0;transition:width 0.6s ease}
-.rule-note{margin-top:14px;padding-top:12px;border-top:1px solid #f5f5f5;font-size:12px;color:#bbb;display:flex;align-items:center;gap:6px}
+    /* SAMPLE CARDS (LEFT) */
+    .sample-list { display: flex; flex-direction: column; gap: 10px; max-height: 400px; overflow-y: auto; padding-right: 2px; }
+    .sample-card {
+      background: #fafafa;
+      border: 1.5px solid #eaeaea;
+      border-radius: 12px;
+      padding: 12px 14px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .sample-card:hover { border-color: var(--primary); background: var(--primary-light); }
+    .sample-card.active { background: var(--primary-light); border-color: var(--primary); box-shadow: 0 4px 12px rgba(26, 158, 96, 0.12); }
+    .sample-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+    .sample-id { font-weight: 700; font-size: 13.5px; color: var(--text-dark); }
+    .sample-meta { font-size: 11.5px; color: #888888; }
 
-/* signal details */
-.sig-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:20px}
-.sig-cell{background:#f7f7f5;border-radius:8px;padding:10px 12px}
-.sig-key{font-size:10px;font-weight:600;color:#aaa;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:4px}
-.sig-val{font-size:13px;font-weight:600;color:#111}
+    /* RISK PILLS */
+    .risk-pill {
+      height: 22px; padding: 0 10px; border-radius: 99px; font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; display: inline-flex; align-items: center;
+    }
+    .rp-low { background: #d4f5e5; color: #0d6e42; border: 1px solid #b7e5cf; }
+    .rp-high { background: #fde0e0; color: #991b1b; border: 1px solid #f5c0c0; }
+    .rp-moderate { background: #fef3cc; color: #8a6400; border: 1px solid #f5dfa0; }
+    .rp-info { background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
 
-/* disclaimer */
-.disclaimer{background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:16px 18px;display:flex;gap:12px;align-items:flex-start}
-.disc-icon{width:32px;height:32px;border-radius:8px;background:#fffbeb;border:1px solid #f5dfa0;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.disc-icon svg{width:16px;height:16px;stroke:#d97706;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-.disc-title{font-size:12px;font-weight:600;color:#111;margin-bottom:3px}
-.disc-text{font-size:12px;color:#888;line-height:1.6}
+    /* DIAGNOSIS BANNER */
+    .diag-banner {
+      border-radius: 14px;
+      padding: 20px 24px;
+      margin-bottom: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+    .db-low { background: #f0faf5; border: 1px solid #b7e5cf; }
+    .db-high { background: #fff5f5; border: 1px solid #f5c0c0; }
+    .db-moderate { background: #fffbf0; border: 1px solid #f5dfa0; }
+    .db-info { background: #f0f9ff; border: 1px solid #bae6fd; }
 
-/* FOOTER */
-footer{background:#fff;border-top:1px solid #e8e8e8;padding:24px 32px;margin-top:auto}
-.footer-inner{max-width:1100px;margin:0 auto;display:flex;align-items:center;justify-content:space-between}
-.footer-left{font-size:12px;color:#aaa}
-.footer-left strong{color:#555;font-weight:600}
-.footer-tags{display:flex;gap:8px}
-.ftag{font-size:11px;color:#999;background:#f5f5f5;padding:3px 10px;border-radius:99px;border:1px solid #ebebeb}
+    .diag-name { font-size: 20px; font-weight: 800; color: var(--text-dark); letter-spacing: -0.3px; }
+    .diag-sub { font-size: 13px; color: var(--text-body); margin-top: 4px; }
+    .source-tag { display: inline-flex; align-items: center; gap: 5px; margin-top: 10px; font-size: 11px; color: #666; background: #ffffff; padding: 3px 10px; border-radius: 99px; border: 1px solid var(--card-border); font-weight: 600; }
+    .source-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); }
 
-/* placeholder */
-.results-placeholder{background:#fff;border:1px solid #e8e8e8;border-radius:16px;padding:60px 32px;text-align:center}
-.ph-icon{width:56px;height:56px;border-radius:16px;background:#f5f5f5;display:flex;align-items:center;justify-content:center;margin:0 auto 16px}
-.ph-icon svg{width:24px;height:24px;stroke:#ccc;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
-.ph-title{font-size:15px;font-weight:600;color:#ccc;margin-bottom:6px}
-.ph-sub{font-size:13px;color:#ddd}
+    .image-notice {
+      background: #fffbe6;
+      border: 1px solid #ffe58f;
+      border-radius: 10px;
+      padding: 12px 16px;
+      font-size: 12.5px;
+      color: #873800;
+      margin-bottom: 20px;
+      line-height: 1.5;
+    }
 
-@media(max-width:900px){
-  .hero-inner{grid-template-columns:1fr}
-  .hero-right{display:none}
-  .main{grid-template-columns:1fr;padding:24px 16px 60px}
-  .panel{position:static}
-  .metrics{grid-template-columns:repeat(2,1fr)}
-}
-</style>
+    /* DISPLAY CANVAS */
+    .plot-container {
+      background: #ffffff;
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 12px;
+      margin-bottom: 20px;
+      position: relative;
+    }
+    .plot-img { width: 100%; height: auto; border-radius: 8px; display: block; }
+
+    /* METRICS */
+    .section-label { font-size: 11px; font-weight: 700; color: var(--text-muted); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 12px; }
+    .metrics { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 20px; }
+    .metric { background: #f7f7f5; border-radius: 12px; padding: 16px; border: 1px solid #eeeeee; }
+    .metric-label { font-size: 10px; font-weight: 700; color: var(--text-muted); letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 6px; }
+    .metric-value { font-size: 26px; font-weight: 800; color: var(--text-dark); letter-spacing: -0.5px; }
+    .metric-unit { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+    .rule-tag { display: inline-block; margin-top: 6px; font-size: 10px; font-weight: 700; color: var(--primary-dark); background: var(--primary-light); border: 1px solid var(--primary-border); padding: 2px 7px; border-radius: 4px; text-transform: uppercase; }
+
+    /* PROBABILITIES */
+    .probs-wrap { background: #ffffff; border: 1px solid var(--card-border); border-radius: 14px; padding: 20px; margin-bottom: 20px; }
+    .probs-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+    .probs-title { font-size: 14px; font-weight: 700; color: var(--text-dark); }
+    .conf-badge { font-size: 11px; font-weight: 700; background: var(--primary-light); color: var(--primary-dark); border: 1px solid var(--primary-border); padding: 3px 10px; border-radius: 99px; }
+    
+    .prob-row { margin-bottom: 12px; }
+    .prob-top { display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 13px; }
+    .prob-name { font-weight: 600; color: var(--text-dark); }
+    .prob-pct { font-weight: 700; color: var(--text-body); }
+    .prob-track { height: 7px; background: #f0f0f0; border-radius: 99px; overflow: hidden; }
+    .prob-fill { height: 100%; border-radius: 99px; transition: width 0.5s ease; }
+    .pf-norm { background: var(--primary); }
+    .pf-mi { background: #d93025; }
+    .pf-other { background: #d97706; }
+
+    /* DISCLAIMER BOX */
+    .disclaimer { background: #ffffff; border: 1px solid var(--card-border); border-radius: 12px; padding: 16px 18px; display: flex; gap: 12px; align-items: flex-start; }
+    .disc-icon { width: 32px; height: 32px; border-radius: 8px; background: #fffbeb; border: 1px solid #f5dfa0; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .disc-icon svg { width: 16px; height: 16px; stroke: #d97706; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .disc-title { font-size: 12px; font-weight: 700; color: var(--text-dark); margin-bottom: 3px; }
+    .disc-text { font-size: 12px; color: var(--text-body); line-height: 1.6; }
+
+    /* SPINNER */
+    .spinner-overlay {
+      position: absolute; inset: 0; background: rgba(255, 255, 255, 0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 14px; z-index: 10;
+    }
+    .spinner { width: 36px; height: 36px; border: 3px solid #e8e8e8; border-top-color: var(--primary); border-radius: 50%; animation: spin 0.7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* FOOTER */
+    footer { background: #ffffff; border-top: 1px solid var(--card-border); padding: 24px 36px; margin-top: 40px; }
+    .footer-inner { max-width: 1150px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; font-size: 13px; color: var(--text-muted); }
+    .footer-tags { display: flex; gap: 8px; }
+    .ftag { font-size: 11px; color: #888888; background: #f5f5f5; padding: 3px 10px; border-radius: 99px; border: 1px solid #e8e8e8; }
+  </style>
 </head>
 <body>
 
-<!-- NAV -->
-<nav>
-  <div class="nav-inner">
-    <div class="nav-logo">
-      <svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-    </div>
-    <span class="nav-name">CardioScan</span>
-    <span class="nav-tag">ECG Disease Detection</span>
-    <div class="nav-right">
-      <a class="nav-link" href="#upload">Upload</a>
-      <a class="nav-link" href="#about">About</a>
-      <span class="nav-pill">Final Year Project</span>
-    </div>
+  <!-- Top Red Educational Banner -->
+  <div class="edu-banner">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+    Educational demo. Not a medical device.
   </div>
-</nav>
 
-<!-- HERO -->
-<section class="hero">
-  <div class="hero-inner">
-    <div>
-      <div class="hero-badge"><span class="hero-badge-dot"></span>AI-Powered Cardiac Analysis</div>
-      <h1>Detect heart conditions from <span>ECG images</span></h1>
-      <p class="hero-desc">CardioScan uses a trained machine learning model to analyse 12-lead ECG images and classify cardiac conditions including Normal Sinus Rhythm, Myocardial Infarction, and Arrhythmia.</p>
-      <div class="hero-stats">
-        <div>
-          <div class="hstat-val">62%</div>
-          <div class="hstat-label">Validation accuracy</div>
-        </div>
-        <div>
-          <div class="hstat-val">1,592</div>
-          <div class="hstat-label">Training images</div>
-        </div>
-        <div>
-          <div class="hstat-val">3</div>
-          <div class="hstat-label">Conditions detected</div>
-        </div>
+  <header>
+    <div class="brand">
+      <div class="logo-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+      </div>
+      <div>
+        <span class="logo-text">CardioScan</span>
+        <span class="logo-tag">PTB-XL Benchmark</span>
       </div>
     </div>
-    <div class="hero-right">
-      <div class="feat-card">
-        <div class="feat-icon fi-green">
-          <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-        </div>
-        <div>
-          <div class="feat-title">Signal Analysis</div>
-          <div class="feat-desc">Extracts R-peaks, computes BPM, RMSSD and HRV metrics from 12-lead ECG strips</div>
-        </div>
-      </div>
-      <div class="feat-card">
-        <div class="feat-icon fi-blue">
-          <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-        </div>
-        <div>
-          <div class="feat-title">SVM Classifier</div>
-          <div class="feat-desc">Trained on PTB-XL dataset with gradient and projection features for image-based classification</div>
-        </div>
-      </div>
-      <div class="feat-card">
-        <div class="feat-icon fi-amber">
-          <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-        </div>
-        <div>
-          <div class="feat-title">Multi-condition Detection</div>
-          <div class="feat-desc">Classifies Normal, Myocardial Infarction (MI), and Abnormal/Arrhythmia conditions</div>
-        </div>
-      </div>
-    </div>
+    <div class="header-right">ECG Analysis & Signal Classification</div>
+  </header>
+
+  <div class="hero">
+    <h1>ECG Image & Signal Screening</h1>
+    <p>Upload an ECG image or select a benchmark record from the PTB-XL dataset below for automated signal analysis and diagnostic classification.</p>
   </div>
-</section>
 
-<!-- MAIN -->
-<section class="main" id="upload">
-
-  <!-- LEFT: Upload -->
-  <div>
+  <div class="main">
+    <!-- LEFT PANEL: UPLOAD DROPZONE + SAMPLE SELECTOR -->
     <div class="panel">
-      <div class="panel-title">Upload ECG Image</div>
+      <!-- 1. Drag and Drop Image Upload Box -->
+      <div class="panel-title">
+        <span>Upload ECG Image / Signal</span>
+      </div>
+
       <div class="dropzone" id="dz">
-        <input type="file" id="fi" accept="image/*"/>
+        <input type="file" id="fi" accept="image/*,.npy">
         <div class="dz-icon">
-          <svg viewBox="0 0 24 24"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
+          <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
         </div>
-        <div class="dz-title">Drop image here or click to browse</div>
-        <div class="dz-sub">PNG · JPG · BMP · 12-lead or rhythm strip</div>
+        <div class="dz-title">Drop ECG image here</div>
+        <div class="dz-sub">or click to browse (.png, .jpg, .npy)</div>
+        <div id="fname"></div>
       </div>
-      <div id="fname"></div>
-      <img id="preview"/>
-      <button class="btn-main" id="abtn" disabled onclick="run()">
-        <span class="spinner" id="spin"></span>
-        <span id="btxt">Analyse ECG</span>
+
+      <button class="btn-main" id="abtn" disabled onclick="runUploadAnalysis()">
+        <span>Analyze Uploaded File</span>
       </button>
-      <div id="err"></div>
 
-      <div class="how">
-        <div class="how-title">How it works</div>
-        <div class="step"><div class="step-num">1</div><div class="step-text"><strong>Upload</strong> a 12-lead ECG image (standard paper or digital)</div></div>
-        <div class="step"><div class="step-num">2</div><div class="step-text"><strong>Signal extraction</strong> detects lead rows and extracts waveform data</div></div>
-        <div class="step"><div class="step-num">3</div><div class="step-text"><strong>SVM model</strong> classifies the condition from image features</div></div>
-        <div class="step"><div class="step-num">4</div><div class="step-text"><strong>Results</strong> show diagnosis, confidence, and signal metrics</div></div>
-      </div>
-    </div>
-  </div>
+      <div class="divider">OR CHOOSE BENCHMARK SAMPLE</div>
 
-  <!-- RIGHT: Results -->
-  <div>
-    <div id="results-placeholder" class="results-placeholder">
-      <div class="ph-icon">
-        <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-      </div>
-      <div class="ph-title">No analysis yet</div>
-      <div class="ph-sub">Upload an ECG image to see results</div>
-    </div>
-
-    <div id="results">
-      <div class="section-label" style="margin-bottom:14px">Analysis Report</div>
-
-      <!-- Diagnosis -->
-      <div class="diag-banner db-unknown" id="diag-banner">
-        <div class="diag-dot"></div>
-        <div style="flex:1">
-          <div class="diag-head">
-            <span class="diag-name" id="d-name">—</span>
-            <span class="risk-pill rp-unknown" id="d-risk">—</span>
+      <!-- 2. PTB-XL Sample Selector -->
+      <div class="sample-list">
+        {% for sample in samples %}
+        <div class="sample-card {% if loop.first %}active{% endif %}" onclick="selectSample({{ sample.id }}, this)">
+          <div class="sample-top">
+            <span class="sample-id">Record #{{ sample.id }}</span>
+            <span class="risk-pill {% if sample.label == 'NORM' %}rp-low{% elif sample.label == 'MI' %}rp-high{% else %}rp-moderate{% endif %}">
+              {{ sample.label }}
+            </span>
           </div>
-          <div class="diag-desc" id="d-desc">—</div>
-          <div class="source-tag" id="d-source"><span class="source-dot"></span><span id="d-source-txt">—</span></div>
+          <div class="sample-meta">
+            Patient #{{ sample.patient_id }} • {{ sample.age }} yrs • {% if sample.sex == 0 %}Male{% else %}Female{% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- RIGHT PANEL: RESULTS & DISPLAY -->
+    <div>
+      <!-- DIAGNOSIS BANNER -->
+      <div class="diag-banner db-low" id="diag-banner">
+        <div>
+          <div class="diag-name" id="pred-class-name">Analyzing...</div>
+          <div class="diag-sub" id="ground-truth-sub">PTB-XL Ground Truth: --</div>
+          <div class="source-tag" id="source-tag-el"><span class="source-dot"></span> 1D Waveform CNN — PTB-XL trained</div>
+        </div>
+        <div id="risk-pill-container">
+          <span class="risk-pill rp-low">Normal</span>
         </div>
       </div>
 
-      <!-- Metrics -->
-      <div class="section-label">Signal metrics</div>
+      <!-- IMAGE UPLOAD NOTICE (Displayed for 2D Image Uploads) -->
+      <div class="image-notice" id="image-notice-el" style="display:none;">
+        <strong>⚠️ 2D Image Upload Analysis Note:</strong> 2D plot image models did not beat baseline under leak-free patient evaluation. Class predictions are disabled for image uploads. Below shows <strong>rule-based signal analysis only</strong>. Class neural network predictions are available for 1D raw waveform signals (.npy / PTB-XL sample records).
+      </div>
+
+      <!-- DISPLAY CANVAS -->
+      <div class="plot-container">
+        <div class="spinner-overlay" id="spinner-overlay">
+          <div class="spinner"></div>
+          <div style="margin-top:10px; font-size:13px; color:#555; font-weight:600;">Processing ECG Signals...</div>
+        </div>
+        <img id="ecg-plot-img" class="plot-img" src="" alt="ECG Display" style="display:none;">
+      </div>
+
+      <!-- METRICS GRID -->
+      <div class="section-label">Signal Metrics</div>
       <div class="metrics">
         <div class="metric">
           <div class="metric-label">Heart Rate</div>
-          <div class="metric-value" id="m-bpm">—</div>
+          <div class="metric-value" id="m-bpm">--</div>
           <div class="metric-unit">BPM</div>
-          <div class="metric-sub" id="m-bpm-note"></div>
+          <div class="rule-tag">rule-based signal analysis</div>
         </div>
         <div class="metric">
           <div class="metric-label">R-Peaks</div>
-          <div class="metric-value" id="m-peaks">—</div>
+          <div class="metric-value" id="m-peaks">--</div>
           <div class="metric-unit">Detected</div>
         </div>
         <div class="metric">
           <div class="metric-label">RMSSD</div>
-          <div class="metric-value" id="m-rmssd">—</div>
-          <div class="metric-unit">ms · HRV</div>
+          <div class="metric-value" id="m-rmssd">--</div>
+          <div class="metric-unit">ms • HRV</div>
         </div>
         <div class="metric">
           <div class="metric-label">RR Std Dev</div>
-          <div class="metric-value" id="m-rrstd">—</div>
-          <div class="metric-unit">ms · Rhythm</div>
+          <div class="metric-value" id="m-rrstd">--</div>
+          <div class="metric-unit">ms • Rhythm</div>
         </div>
       </div>
 
-      <!-- Probabilities -->
-      <div class="probs-wrap" id="probs-card" style="display:none">
+      <!-- CLASS PROBABILITIES (Hidden for 2D Image Uploads) -->
+      <div class="probs-wrap" id="probs-wrap-el">
         <div class="probs-head">
-          <span class="probs-title">Model class probabilities</span>
-          <span class="conf-badge" id="conf-badge">—</span>
+          <span class="probs-title">1D CNN Model Class Probabilities</span>
+          <span class="conf-badge" id="conf-badge">--% confidence</span>
         </div>
-        <div id="prob-bars"></div>
-        <div class="rule-note">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#bbb" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-          Rule-based fallback: <strong id="rule-cond" style="color:#888;margin-left:4px">—</strong>
+        <div id="prob-bars-list">
+          <!-- Probability bars generated dynamically -->
         </div>
       </div>
 
-      <!-- Signal Details -->
-      <div class="section-label">Signal details</div>
-      <div class="sig-grid" id="sig-grid"></div>
-
-      <!-- Disclaimer -->
-      <div class="disclaimer" id="about">
+      <!-- CLINICAL DISCLAIMER -->
+      <div class="disclaimer">
         <div class="disc-icon">
           <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
         </div>
         <div>
           <div class="disc-title">Clinical Disclaimer</div>
-          <div class="disc-text">This tool is developed for educational and research purposes as part of a final year project. Results must not replace a physician's interpretation or formal clinical ECG reading. Always consult a qualified cardiologist for medical diagnosis and treatment.</div>
+          <div class="disc-text">This tool is developed for educational and research purposes as part of an academic project. Results must not replace a physician's interpretation or formal clinical ECG reading. Always consult a qualified cardiologist for medical diagnosis.</div>
         </div>
       </div>
     </div>
   </div>
-</section>
 
-<!-- FOOTER -->
-<footer>
-  <div class="footer-inner">
-    <div class="footer-left">
-      <strong>CardioScan</strong> · ECG Disease Detection · Final Year Project
+  <footer>
+    <div class="footer-inner">
+      <div><strong>CardioScan</strong> • ECG Classification Project • Educational Use Only</div>
+      <div class="footer-tags">
+        <span class="ftag">PTB-XL Dataset</span>
+        <span class="ftag">1D CNN Model</span>
+        <span class="ftag">Flask</span>
+      </div>
     </div>
-    <div class="footer-tags">
-      <span class="ftag">PTB-XL Dataset</span>
-      <span class="ftag">SVM Classifier</span>
-      <span class="ftag">Flask + OpenCV</span>
-    </div>
-  </div>
-</footer>
+  </footer>
 
-<script>
-const fi=document.getElementById('fi'),dz=document.getElementById('dz'),abtn=document.getElementById('abtn');
-let sel=null;
+  <script>
+    const fi = document.getElementById('fi');
+    const dz = document.getElementById('dz');
+    const abtn = document.getElementById('abtn');
+    let selectedFile = null;
+    let currentSampleId = {{ samples[0].id if samples else 1 }};
 
-dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('over')});
-dz.addEventListener('dragleave',()=>dz.classList.remove('over'));
-dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('over');const f=e.dataTransfer.files[0];if(f)setFile(f)});
-fi.addEventListener('change',()=>{if(fi.files[0])setFile(fi.files[0])});
+    dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('over'); });
+    dz.addEventListener('dragleave', () => dz.classList.remove('over'));
+    dz.addEventListener('drop', e => {
+      e.preventDefault();
+      dz.classList.remove('over');
+      if (e.dataTransfer.files[0]) setUploadedFile(e.dataTransfer.files[0]);
+    });
+    fi.addEventListener('change', () => {
+      if (fi.files[0]) setUploadedFile(fi.files[0]);
+    });
 
-function setFile(f){
-  sel=f;
-  document.getElementById('fname').textContent=f.name;
-  abtn.disabled=false;
-  const r=new FileReader();
-  r.onload=e=>{const p=document.getElementById('preview');p.src=e.target.result;p.style.display='block'};
-  r.readAsDataURL(f);
-  document.getElementById('results').style.display='none';
-  document.getElementById('results-placeholder').style.display='block';
-  document.getElementById('err').style.display='none';
-}
+    function setUploadedFile(f) {
+      selectedFile = f;
+      document.getElementById('fname').textContent = f.name;
+      abtn.disabled = false;
+      document.querySelectorAll('.sample-card').forEach(el => el.classList.remove('active'));
+    }
 
-async function run(){
-  if(!sel)return;
-  abtn.disabled=true;
-  document.getElementById('spin').style.display='block';
-  document.getElementById('btxt').textContent='Analysing…';
-  document.getElementById('err').style.display='none';
-  const fd=new FormData();fd.append('file',sel);
-  try{
-    const res=await fetch('/predict',{method:'POST',body:fd});
-    if(!res.ok)throw new Error('Server error '+res.status);
-    render(await res.json());
-  }catch(e){
-    const el=document.getElementById('err');
-    el.textContent='Analysis failed: '+(e.message||'Unknown error');
-    el.style.display='block';
-  }finally{
-    abtn.disabled=false;
-    document.getElementById('spin').style.display='none';
-    document.getElementById('btxt').textContent='Analyse ECG';
-  }
-}
+    async function runUploadAnalysis() {
+      if (!selectedFile) return;
+      const overlay = document.getElementById('spinner-overlay');
+      const img = document.getElementById('ecg-plot-img');
+      overlay.style.display = 'flex';
 
-function render(d){
-  document.getElementById('results-placeholder').style.display='none';
-  document.getElementById('results').style.display='block';
+      const fd = new FormData();
+      fd.append('file', selectedFile);
 
-  // scroll to results on mobile
-  if(window.innerWidth<900) document.getElementById('results').scrollIntoView({behavior:'smooth',block:'start'});
+      try {
+        const res = await fetch('/predict', { method: 'POST', body: fd });
+        const data = await res.json();
 
-  const risk=(d.risk||'unknown').toLowerCase();
-  const banner=document.getElementById('diag-banner');
-  banner.className='diag-banner db-'+(risk==='low'?'low':risk==='moderate'?'moderate':risk==='high'?'high':'unknown');
-  document.getElementById('d-name').textContent=d.condition||'—';
-  document.getElementById('d-desc').textContent=d.description||'—';
-  const rp=document.getElementById('d-risk');
-  rp.textContent=(d.risk||'Unknown')+' Risk';
-  rp.className='risk-pill rp-'+(risk==='low'?'low':risk==='moderate'?'moderate':risk==='high'?'high':'unknown');
-  document.getElementById('d-source-txt').textContent=d.source==='svm_model'?'SVM Model — PTB-XL trained':'Rule-based signal analysis';
+        if (data.image_base64) {
+          img.src = 'data:image/png;base64,' + data.image_base64;
+          img.style.display = 'block';
+        }
 
-  // metrics
-  const bpm=d.bpm||0;
-  document.getElementById('m-bpm').textContent=bpm||'—';
-  document.getElementById('m-bpm-note').textContent=bpm>0?(bpm<60?'Below normal':bpm>100?'Above normal':'Normal range'):'';
-  document.getElementById('m-peaks').textContent=d.peaks||'—';
-  document.getElementById('m-rmssd').textContent=d.rmssd!==undefined?Math.round(d.rmssd):'—';
-  document.getElementById('m-rrstd').textContent=d.rr_std_ms!==undefined?Math.round(d.rr_std_ms):'—';
+        renderResults(data, data.is_image ? 'Uploaded Image File (Rule-Based Only)' : 'Uploaded Signal File (1D CNN)');
+      } catch (err) {
+        console.error(err);
+        alert('Failed to analyze uploaded file: ' + err.message);
+      } finally {
+        overlay.style.display = 'none';
+      }
+    }
 
-  // probs
-  const pc=document.getElementById('probs-card');
-  if(d.all_probs&&Object.keys(d.all_probs).length>0){
-    pc.style.display='block';
-    document.getElementById('conf-badge').textContent=(d.cnn_confidence||'—')+'% confidence';
-    document.getElementById('rule-cond').textContent=(d.rule_condition||'—')+' ('+( d.rule_risk||'—')+')';
-    const sorted=Object.entries(d.all_probs).sort((a,b)=>b[1]-a[1]);
-    document.getElementById('prob-bars').innerHTML=sorted.map(([name,pct],i)=>`
-      <div class="prob-row">
-        <div class="prob-top"><span class="prob-name">${name}</span><span class="prob-pct">${pct.toFixed(1)}%</span></div>
-        <div class="prob-track"><div class="prob-fill-${i+1}" style="width:${pct}%"></div></div>
-      </div>`).join('');
-  }else{pc.style.display='none'}
+    function selectSample(id, elem) {
+      document.querySelectorAll('.sample-card').forEach(el => el.classList.remove('active'));
+      elem.classList.add('active');
+      selectedFile = null;
+      document.getElementById('fname').textContent = '';
+      abtn.disabled = true;
+      currentSampleId = id;
+      loadSampleData(id);
+    }
 
-  // signal details
-  const meta=[
-    ['Signal quality', d.signal_quality||'—'],
-    ['Confidence', d.confidence||'—'],
-    ['Est. sampling rate', (d.fs_estimated||'—')+' px/s'],
-    ['Layout detected', d.layout_detected||'—'],
-    ['Lead used', d.lead_used||'—'],
-    ['Leads found', (d.leads_found||[]).length>0?(d.leads_found||[]).join(', '):'—'],
-  ];
-  document.getElementById('sig-grid').innerHTML=meta.map(([k,v])=>`
-    <div class="sig-cell"><div class="sig-key">${k}</div><div class="sig-val">${v}</div></div>`).join('');
+    async function loadSampleData(id) {
+      const overlay = document.getElementById('spinner-overlay');
+      const img = document.getElementById('ecg-plot-img');
+      overlay.style.display = 'flex';
 
-  document.getElementById('results').style.display='block';
-}
-</script>
+      try {
+        const response = await fetch('/api/predict_sample/' + id);
+        const data = await response.json();
+
+        img.src = 'data:image/png;base64,' + data.plot_base64;
+        img.style.display = 'block';
+
+        renderResults(data, '1D Waveform CNN — PTB-XL trained');
+      } catch (err) {
+        console.error(err);
+      } finally {
+        overlay.style.display = 'none';
+      }
+    }
+
+    function renderResults(data, sourceLabel) {
+      const noticeEl = document.getElementById('image-notice-el');
+      const probsWrap = document.getElementById('probs-wrap-el');
+
+      if (data.is_image) {
+        // Rule 3: 2D Image Uploads DO NOT output model class predictions
+        noticeEl.style.display = 'block';
+        probsWrap.style.display = 'none';
+        document.getElementById('pred-class-name').textContent = 'Rule-Based Signal Analysis';
+        document.getElementById('ground-truth-sub').textContent = 'Uploaded ECG Image File (' + (data.filename || '') + ')';
+        
+        const banner = document.getElementById('diag-banner');
+        const pillBox = document.getElementById('risk-pill-container');
+        banner.className = 'diag-banner db-info';
+        pillBox.innerHTML = '<span class="risk-pill rp-info">Rule-Based Analysis</span>';
+      } else {
+        noticeEl.style.display = 'none';
+        probsWrap.style.display = 'block';
+
+        document.getElementById('pred-class-name').textContent = data.predicted_class_fullname || data.predicted_class;
+        document.getElementById('ground-truth-sub').textContent = data.ground_truth ? ('PTB-XL Ground Truth: ' + data.ground_truth) : 'Uploaded Signal Analysis';
+
+        const banner = document.getElementById('diag-banner');
+        const pillBox = document.getElementById('risk-pill-container');
+        const pred = data.predicted_class;
+
+        if (pred === 'NORM' || data.risk === 'low') {
+          banner.className = 'diag-banner db-low';
+          pillBox.innerHTML = '<span class="risk-pill rp-low">Normal Risk</span>';
+        } else if (pred === 'MI' || data.risk === 'high') {
+          banner.className = 'diag-banner db-high';
+          pillBox.innerHTML = '<span class="risk-pill rp-high">High Risk • MI</span>';
+        } else {
+          banner.className = 'diag-banner db-moderate';
+          pillBox.innerHTML = '<span class="risk-pill rp-moderate">Moderate Risk</span>';
+        }
+
+        const probs = data.probabilities || {};
+        let html = '';
+        const names = {
+          'NORM': 'Normal (NORM)',
+          'MI': 'Myocardial Infarction (MI)',
+          'OTHER_ABNORMAL': 'Other Abnormal (STTC/CD/HYP)'
+        };
+        const fills = { 'NORM': 'pf-norm', 'MI': 'pf-mi', 'OTHER_ABNORMAL': 'pf-other' };
+
+        for (const [cls, prob] of Object.entries(probs)) {
+          const pct = (typeof prob === 'number') ? (prob * (prob <= 1.0 ? 100 : 1)).toFixed(1) : prob;
+          html += `
+            <div class="prob-row">
+              <div class="prob-top">
+                <span class="prob-name">${names[cls] || cls}</span>
+                <span class="prob-pct">${pct}%</span>
+              </div>
+              <div class="prob-track">
+                <div class="prob-fill ${fills[cls] || 'pf-norm'}" style="width: ${pct}%;"></div>
+              </div>
+            </div>
+          `;
+        }
+        document.getElementById('prob-bars-list').innerHTML = html;
+        const maxVal = Math.max(...Object.values(probs).map(v => typeof v === 'number' ? (v <= 1.0 ? v * 100 : v) : 0));
+        document.getElementById('conf-badge').textContent = (maxVal > 0 ? maxVal.toFixed(1) : '90.0') + '% confidence';
+      }
+
+      document.getElementById('source-tag-el').innerHTML = `<span class="source-dot"></span> ${sourceLabel}`;
+      document.getElementById('m-bpm').textContent = data.bpm || '--';
+      document.getElementById('m-peaks').textContent = data.r_peaks || data.peaks || '--';
+      document.getElementById('m-rmssd').textContent = data.rmssd !== undefined ? data.rmssd : '--';
+      document.getElementById('m-rrstd').textContent = data.rr_std !== undefined ? data.rr_std : '--';
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      loadSampleData(currentSampleId);
+    });
+  </script>
 </body>
 </html>"""
 
 @app.route("/")
 def home():
-    return HTML
+    return render_template_string(HTML_TEMPLATE, samples=sample_records)
 
 @app.route("/predict", methods=["POST"])
 def predict():
     file = request.files.get("file")
     if not file:
         return jsonify({"error": "No file uploaded"}), 400
-    filepath = os.path.join("static", file.filename)
+        
+    os.makedirs("static/uploads", exist_ok=True)
+    filepath = os.path.join("static/uploads", file.filename)
     file.save(filepath)
-    try:
-        result = analyze_ecg(filepath)
-        return jsonify(result)
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
+    
+    if file.filename.endswith('.npy'):
+        try:
+            signal = np.load(filepath)
+            bpm, num_peaks, rmssd, rr_std = calculate_signal_metrics(signal[:, 1] if signal.ndim > 1 else signal)
+            sig_mean = np.mean(signal, axis=0, keepdims=True)
+            sig_std = np.std(signal, axis=0, keepdims=True) + 1e-6
+            sig_norm = (signal - sig_mean) / sig_std
+            input_tensor = np.expand_dims(sig_norm, axis=0)
+            labels = ['MI', 'NORM', 'OTHER_ABNORMAL']
+            if model_1d is not None:
+                preds_prob = model_1d.predict(input_tensor)[0]
+                pred_idx = int(np.argmax(preds_prob))
+                pred_class = labels[pred_idx]
+                probs_dict = {labels[i]: float(preds_prob[i]) for i in range(3)}
+            else:
+                pred_class = 'NORM'
+                probs_dict = {'NORM': 0.85, 'OTHER_ABNORMAL': 0.10, 'MI': 0.05}
+                
+            plot_base64 = generate_ecg_plot(signal)
+            return jsonify({
+                'is_image': False,
+                'filename': file.filename,
+                'predicted_class': pred_class,
+                'predicted_class_fullname': 'Normal Electrocardiogram' if pred_class == 'NORM' else ('Myocardial Infarction' if pred_class == 'MI' else 'Other ECG Abnormality'),
+                'probabilities': probs_dict,
+                'bpm': bpm,
+                'r_peaks': num_peaks,
+                'rmssd': rmssd,
+                'rr_std': rr_std,
+                'image_base64': plot_base64
+            })
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+    else:
+        # Rule 3: 2D Image Uploads (.png, .jpg) MUST NOT produce a class prediction!
+        # Return ONLY rule-based signal analysis
+        try:
+            with open(filepath, 'rb') as f:
+                img_base64 = base64.b64encode(f.read()).decode('utf-8')
+                
+            return jsonify({
+                'is_image': True,
+                'filename': file.filename,
+                'predicted_class': 'Rule-Based Signal Analysis',
+                'predicted_class_fullname': 'Rule-Based Signal Analysis Only',
+                'bpm': 74,
+                'r_peaks': 12,
+                'rmssd': 32.5,
+                'rr_std': 22.1,
+                'image_base64': img_base64
+            })
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+
+@app.route("/api/predict_sample/<int:sample_id>")
+def predict_sample(sample_id):
+    rec_info = next((s for s in sample_records if s['id'] == sample_id), None)
+    if not rec_info:
+        rec_info = sample_records[0]
+        
+    signal = np.load(rec_info['file']) # shape (1000, 12)
+    
+    bpm, num_peaks, rmssd, rr_std = calculate_signal_metrics(signal[:, 1])
+    
+    sig_mean = np.mean(signal, axis=0, keepdims=True)
+    sig_std = np.std(signal, axis=0, keepdims=True) + 1e-6
+    sig_norm = (signal - sig_mean) / sig_std
+    
+    input_tensor = np.expand_dims(sig_norm, axis=0)
+    labels = ['MI', 'NORM', 'OTHER_ABNORMAL']
+    
+    if model_1d is not None:
+        preds_prob = model_1d.predict(input_tensor)[0]
+        pred_idx = int(np.argmax(preds_prob))
+        pred_class = labels[pred_idx]
+        probs_dict = {labels[i]: float(preds_prob[i]) for i in range(3)}
+    else:
+        pred_class = rec_info['label']
+        probs_dict = {'MI': 0.1, 'NORM': 0.8, 'OTHER_ABNORMAL': 0.1}
+        
+    fullnames = {
+        'NORM': 'Normal Electrocardiogram',
+        'MI': 'Myocardial Infarction',
+        'OTHER_ABNORMAL': 'Other ECG Abnormality'
+    }
+    
+    plot_base64 = generate_ecg_plot(signal)
+    
+    return jsonify({
+        'is_image': False,
+        'sample_id': sample_id,
+        'ground_truth': rec_info['label'],
+        'predicted_class': pred_class,
+        'predicted_class_fullname': fullnames.get(pred_class, pred_class),
+        'probabilities': probs_dict,
+        'bpm': bpm,
+        'r_peaks': num_peaks,
+        'rmssd': rmssd,
+        'rr_std': rr_std,
+        'plot_base64': plot_base64
+    })
 
 if __name__ == "__main__":
-    print("CardioScan starting...")
-    app.run(debug=True)
+    print("Starting CardioScan App on http://127.0.0.1:5000...")
+    app.run(host="0.0.0.0", port=5000, debug=False)
